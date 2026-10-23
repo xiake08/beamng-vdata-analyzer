@@ -1,5 +1,7 @@
 # 车辆数据分析器（BeamNG 跑图数据采集 · 悬挂调校助手）
 
+**[⬇️ 下载 Release（Windows 安装包）](https://github.com/xiake08/beamng-vdata-analyzer/releases/latest)**
+
 读取 BeamNG.drive 游戏内导出的跑图 CSV，把减振器、轮荷、踏板、路线这些数据算成
 **一眼能看懂的图和结论**，帮你调悬挂而不是凭感觉。
 
