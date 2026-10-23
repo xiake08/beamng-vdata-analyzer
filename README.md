@@ -1,4 +1,4 @@
-# 车辆数据分析器（BeamNG 跑图数据采集 · 悬挂调校助手）
+﻿# 车辆数据分析器（BeamNG 跑图数据采集 · 悬挂调校助手）
 
 **[⬇️ 下载 Release（Windows 安装包）](https://github.com/xiake08/beamng-vdata-analyzer/releases/latest)**
 
@@ -8,7 +8,6 @@
 > 界面是 pywebview + HTML/CSS 手写的 BeamNG 风格 Web UI，纯本地运行、不联网。
 
 ![总览](docs/screenshots/all_pages.jpg)
-
 
 ## 功能
 
