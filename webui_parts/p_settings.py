@@ -48,6 +48,7 @@ def render(d):
 
     userpath = getattr(T, "USERPATH", "") if T else ""
     game_exe = getattr(T, "GAME_EXE", "") if T else ""
+    launcher = getattr(T, "LAUNCHER", "") if T else ""
     outdir = getattr(T, "OUTDIR", "") if T else ""
     cfg_file = getattr(T, "CFG_FILE", "") if T else ""
     inst = _install_status(userpath)
@@ -80,6 +81,14 @@ def render(d):
             <div class="cfg-row">
               <input id="cfg-game-exe" value="%(game_exe)s" spellcheck="false">
               <button class="cfg-btn ghost" id="cfg-browse-game">浏览…</button>
+            </div>
+            <label>非 Steam 启动路径
+              <span>游戏根目录的 BeamNG.drive.exe（留空则走 Steam 启动；不要填 Bin64 里的 x64）</span>
+            </label>
+            <div class="cfg-row">
+              <input id="cfg-launcher" value="%(launcher)s" spellcheck="false"
+                     placeholder="例如 E:\\SteamLibrary\\steamapps\\common\\BeamNG.drive\\BeamNG.drive.exe">
+              <button class="cfg-btn ghost" id="cfg-browse-launcher">浏览…</button>
             </div>
             <label>抓包输出目录
               <span>程序读取 / 整理 CSV 的地方</span>
@@ -120,6 +129,7 @@ def render(d):
     </section>""" % {
         "userpath": esc(userpath),
         "game_exe": esc(game_exe),
+        "launcher": esc(launcher),
         "outdir": esc(outdir),
         "cfg_file": esc(cfg_file),
         "status_rows": status_rows,
@@ -170,13 +180,15 @@ window.PAGE_INIT.settings = function (root, DATA) {
       if (!r || !r.ok) { toast('探测失败：' + ((r && r.error) || '')); return; }
       if (r.userpath) $('#cfg-userpath').value = r.userpath;
       if (r.game_exe) $('#cfg-game-exe').value = r.game_exe;
+      if (r.launcher) $('#cfg-launcher').value = r.launcher;
       toast('已自动探测，确认后点「保存」');
     });
   }
 
   function browse(kind) {
-    var target = { userpath: '#cfg-userpath', game: '#cfg-game-exe', outdir: '#cfg-outdir' }[kind];
-    var method = kind === 'game' ? 'pick_exe' : 'pick_folder';
+    var target = { userpath: '#cfg-userpath', game: '#cfg-game-exe',
+                   launcher: '#cfg-launcher', outdir: '#cfg-outdir' }[kind];
+    var method = (kind === 'game' || kind === 'launcher') ? 'pick_exe' : 'pick_folder';
     if (!can(method)) { toast('真窗口里才能选择文件夹'); return; }
     api()[method]().then(function (r) {
       if (!r || r.cancelled) return;
@@ -188,7 +200,8 @@ window.PAGE_INIT.settings = function (root, DATA) {
   function save(thenInstall) {
     if (!can('save_config')) { toast('真窗口里才能保存'); return; }
     toast('正在保存路径…');
-    api().save_config(val('#cfg-userpath'), val('#cfg-game-exe'), val('#cfg-outdir')).then(function (r) {
+    api().save_config(val('#cfg-userpath'), val('#cfg-game-exe'), val('#cfg-outdir'),
+                     val('#cfg-launcher')).then(function (r) {
       if (!r || !r.ok) { toast('保存失败：' + ((r && r.error) || '')); return; }
       if (!thenInstall) return;
       api().install_mod().then(function (m) {
@@ -207,6 +220,7 @@ window.PAGE_INIT.settings = function (root, DATA) {
   bind('#cfg-save-install', function () { save(true); });
   bind('#cfg-browse-userpath', function () { browse('userpath'); });
   bind('#cfg-browse-game', function () { browse('game'); });
+  bind('#cfg-browse-launcher', function () { browse('launcher'); });
   bind('#cfg-browse-outdir', function () { browse('outdir'); });
   bind('#cfg-install', function () {
     if (!can('install_mod')) { toast('真窗口里才能安装'); return; }

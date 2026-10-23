@@ -988,7 +988,7 @@ __PAGE_JS__
 
   function launchGame() {
     if (!bridgeReady()) { toast('静态预览不能启动游戏，请用真窗口'); return; }
-    toast('正在通过 Steam 启动游戏…');
+    toast('正在启动游戏…');
     window.pywebview.api.launch_game().then(function (res) {
       if (!res || !res.ok) toast('启动失败：' + ((res && res.message) || '未知错误'));
       else toast(res.message);
@@ -1677,8 +1677,9 @@ class Api:
 
     def autodetect_paths(self):
         try:
+            game = T._autodetect_game_exe()
             return {"ok": True, "userpath": T._autodetect_userpath(),
-                    "game_exe": T._autodetect_game_exe()}
+                    "game_exe": game, "launcher": T._derive_launcher(game)}
         except Exception as e:          # noqa: BLE001
             return {"ok": False, "error": "%s" % e}
 
@@ -1703,18 +1704,21 @@ class Api:
             return {"ok": False, "cancelled": True}
         return {"ok": True, "path": res[0] if isinstance(res, (list, tuple)) else res}
 
-    def save_config(self, userpath, game_exe="", outdir=""):
+    def save_config(self, userpath, game_exe="", outdir="", launcher=""):
         """写回 config.json，同步更新 beamng_data 的全局路径，然后整页重载。"""
         import json
         userpath = (userpath or "").strip()
         game_exe = (game_exe or "").strip()
         outdir = (outdir or "").strip()
+        launcher = (launcher or "").strip()
         if not userpath or not os.path.isdir(userpath):
             return {"ok": False, "error": "用户目录不存在：%s" % userpath}
         outdir = os.path.abspath(outdir) if outdir else T.OUTDIR
         try:
             os.makedirs(outdir, exist_ok=True)
             cfg = {"userpath": userpath, "game_exe": game_exe, "outdir": outdir}
+            if launcher:
+                cfg["launcher"] = launcher
             with open(T.CFG_FILE, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception as e:          # noqa: BLE001
@@ -1722,8 +1726,7 @@ class Api:
         T.USERPATH = userpath
         T.GAME_EXE = game_exe
         T.OUTDIR = outdir
-        T.LAUNCHER = os.path.join(os.path.dirname(os.path.dirname(game_exe)),
-                                  "BeamNG.drive.exe") if game_exe else ""
+        T.LAUNCHER = launcher or T._derive_launcher(game_exe)
         T.IPC_DIR = userpath
         T.F_STATUS = os.path.join(userpath, "roadProfile_status.txt")
         T.F_CMD = os.path.join(userpath, "roadProfile_cmd.txt")
