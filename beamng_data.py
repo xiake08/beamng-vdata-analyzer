@@ -102,19 +102,36 @@ def launch_game():
         return False, "启动失败：%s" % e
 
 # ══ 装进游戏（扩展 + 自动加载脚本 + 面板 mod）═══════════════════════════
+def _mod_source_dirs():
+    """找 mod 源文件可能所在的目录：PyInstaller onedir 的 _internal、exe 同级、源码目录。"""
+    dirs = []
+    for d in (BUNDLE_DIR, BASE_DIR, os.path.dirname(os.path.abspath(sys.executable)),
+              os.path.dirname(os.path.abspath(__file__))):
+        if d and d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
+def _find_mod_file(name):
+    for d in _mod_source_dirs():
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return p
+    return os.path.join(BUNDLE_DIR, name)
+
+
 def install_to_game(userpath):
     """把抓包扩展装到用户目录，返回 (成功数, 说明列表)"""
     import shutil
-    here = BUNDLE_DIR
     done, msgs = 0, []
     if not userpath or not os.path.isdir(userpath):
         return 0, ["用户目录不存在: %s" % userpath]
     jobs = [
-        (os.path.join(here, "roadProfile.lua"),
+        (_find_mod_file("roadProfile.lua"),
          os.path.join(userpath, "lua", "ge", "extensions", "roadProfile.lua")),
-        (os.path.join(here, "modScript.lua"),
+        (_find_mod_file("modScript.lua"),
          os.path.join(userpath, "scripts", "roadProfile", "modScript.lua")),
-        (os.path.join(here, "roadProfileUI.zip"),
+        (_find_mod_file("roadProfileUI.zip"),
          os.path.join(userpath, "mods", "roadProfileUI.zip")),
     ]
     for src, dst in jobs:
