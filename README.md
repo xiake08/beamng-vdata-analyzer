@@ -7,6 +7,8 @@
 
 ![总览](docs/screenshots/all_pages.jpg)
 
+▶ **31 秒演示视频**：[BeamNG-Data-Analyzer-v2.0-demo.mp4](https://github.com/xiake08/beamng-vdata-analyzer/releases/download/v2.0/BeamNG-Data-Analyzer-v2.0-demo.mp4)（Release 附件，1080p）
+
 ## 功能
 
 - **减振器分布**：三档颠簸占比（细碎 / 常见 / 大冲击）+ 前后轴谁更忙 + 自动调校建议
