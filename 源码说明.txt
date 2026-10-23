@@ -1,0 +1,42 @@
+车辆数据分析器 v2.0 源码
+=======================
+
+目录说明
+  web_ui.py              主程序 / 页面框架 / pywebview 窗口
+  beamng_data.py         数据引擎（读 CSV、算指标、结论、装 mod、启动游戏）
+  install_actions.py     mod 安装 / 启动游戏辅助
+  level_map.py           真实地图合成（实验用，当前默认关闭）
+  webui_parts/           页面模块（profile/dyno/wheels/wave/pedals/compare/map3d/summary/settings/help）
+  tools/installer_gui.py 安装程序源码（检测旧版 / 覆盖安装 / 注册卸载项）
+  tools/uninstaller.py   卸载程序源码（打包成安装目录里的 卸载.exe）
+  roadProfile.lua        游戏内抓包扩展（含 catfix：0.40.2+ 启动后刷新 UI Apps 清单）
+  modScript.lua          自动加载脚本
+  roadProfileUI.zip      游戏内「路面抓包」面板 mod
+  docs/screenshots/      README 用截图（最新 UI）
+  app.ico / app_icon.png 图标
+  config.example.json    配置示例（复制成 config.json 再改）
+  LICENSE / README.md / 使用说明.txt
+
+运行（开发环境）
+  pip install pywebview pillow
+  python web_ui.py
+  python web_ui.py --page dyno --html out.html   # 导出单页 HTML 调试
+  python web_ui.py --headless --page dyno --shot dyno.png   # 截图
+
+打包主程序（构建目录不能带空格，pythonnet 在带空格路径下会加载失败）
+  pyinstaller --onedir --windowed --name 车辆数据分析器 --icon app.ico ^
+    --add-data "webui_parts/chartkit.js;webui_parts" ^
+    --collect-submodules webui_parts --collect-all webview ^
+    --collect-all pythonnet --collect-all clr_loader --collect-all cffi ^
+    --exclude-module level_map --exclude-module numpy ^
+    web_ui.py
+
+打包安装程序（app.zip 里放主程序 onedir 产物 + 卸载.exe + 支持文件）
+  pyinstaller --onefile --windowed --name 车辆数据分析器_v2.0_安装程序 ^
+    --icon app.ico --add-data "app.zip;." --add-data "app.ico;." installer_gui.py
+
+打包卸载程序
+  pyinstaller --onefile --windowed --name 卸载 --icon app.ico uninstaller.py
+
+说明：安装包里的 config.json 不会带个人路径（首次打开自动探测 / 在设置页填）；
+覆盖安装会保留已有的 config.json 和 抓包数据 目录。

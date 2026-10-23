@@ -1,0 +1,40 @@
+# 运行 / 构建产物
+_internal/
+build/
+dist/
+*.exe
+*.spec
+*.pyc
+__pycache__/
+*.log
+
+# 个人数据与本地配置
+config.json
+抓包数据/
+version.json
+卸载说明.txt
+使用说明.txt
+webui/final/
+
+# 宣传片素材（不随仓库）
+宣传视频*.mp4
+宣传视频_素材/
+宣传视频_封面.jpg
+宣传视频_分镜脚本.md
+cover_a.jpg
+cover_b.jpg
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ���������ļ�
+webui/
+ui_app/
+*.spec
+
+
+# ���л��棨������·�������ύ��
+webui_parts/_data.json
+
