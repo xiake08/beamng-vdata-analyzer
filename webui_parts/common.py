@@ -87,8 +87,11 @@ def head_html(file_stem, file_full, title, badge, sub, chips=""):
     live_chip = ('<span class="chip live-chip live-idle" id="live-status" '
                  'title="游戏 / 抓包实时状态（每 3 秒刷新）">游戏没开</span>')
     play_btn = ('<button class="chip chip-btn play-btn" id="launch-game" '
-                'title="通过 Steam 启动 BeamNG.drive">'
-                '%s<span>启动游戏</span></button>' % IC["play"])
+                'title="通过 Steam 启动 BeamNG.drive（steam://rungameid/284160）">'
+                '%s<span>Steam 启动</span></button>'
+                '<button class="chip chip-btn play-btn direct-btn" id="launch-game-direct" '
+                'title="直接启动设置里的非 Steam 路径（游戏根目录 BeamNG.drive.exe）">'
+                '%s<span>非 Steam 启动</span></button>' % (IC["play"], IC["play"]))
     data_btn = ('<button class="chip chip-btn" id="open-data" title="切换数据文件（CSV）">'
                 '%s<span>换数据</span></button>' % IC["folder"])
     return (

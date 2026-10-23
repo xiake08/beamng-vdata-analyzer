@@ -97,13 +97,33 @@ LAUNCHER = _CFG.get("launcher") or _derive_launcher(GAME_EXE)
 STEAM_URL = "steam://rungameid/284160"
 
 
-def launch_game():
+def launch_game(mode="auto"):
     """启动 BeamNG.drive，返回 (ok, 说明)。
 
-    优先用「非 Steam 启动路径」（游戏根目录的 BeamNG.drive.exe）；
-    没配置就退回 Steam 协议（steam://rungameid/284160）。
+    mode:
+      "steam"  → 走 Steam 协议（steam://rungameid/284160）
+      "direct" → 用「非 Steam 启动路径」（游戏根目录 BeamNG.drive.exe）
+      "auto"   → 有非 Steam 路径就用它，没有就 Steam
     注意：直连 Bin64 里的 BeamNG.drive.x64.exe 会新建空档案，不要那么干。
     """
+    mode = (mode or "auto").strip().lower()
+    if mode == "steam":
+        try:
+            os.startfile(STEAM_URL)          # noqa: S606  Windows 专用
+            return True, "正在通过 Steam 启动游戏…"
+        except OSError as e:
+            return False, "启动失败：%s" % e
+    if mode == "direct":
+        if not LAUNCHER:
+            return False, "没配置非 Steam 启动路径（设置页里填游戏根目录的 BeamNG.drive.exe）"
+        if not os.path.isfile(LAUNCHER):
+            return False, "非 Steam 启动路径不存在：%s" % LAUNCHER
+        try:
+            os.startfile(LAUNCHER)          # noqa: S606  Windows 专用
+            return True, "正在直接启动游戏（非 Steam 模式）…"
+        except OSError as e:
+            return False, "启动失败：%s" % e
+    # auto
     if LAUNCHER and os.path.isfile(LAUNCHER):
         try:
             os.startfile(LAUNCHER)          # noqa: S606  Windows 专用

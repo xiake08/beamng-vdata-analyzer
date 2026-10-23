@@ -185,6 +185,8 @@ def _scan(root, depth, out, seen):
         p, name = e.path, e.name.lower()
         if name in SKIP_NAMES or p.lower() in SKIP_PATHS:
             continue
+        if os.path.isdir(os.path.join(p, ".git")):
+            continue                      # 源码仓库不是安装目标，别让用户误覆盖
         if dir_looks_like_app(p):
             ap = os.path.abspath(p)
             if ap not in seen:

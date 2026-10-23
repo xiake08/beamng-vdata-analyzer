@@ -986,10 +986,11 @@ __PAGE_JS__
   setTimeout(pollLive, 1200);
   setInterval(pollLive, 3000);
 
-  function launchGame() {
+  function launchGame(mode) {
     if (!bridgeReady()) { toast('静态预览不能启动游戏，请用真窗口'); return; }
-    toast('正在启动游戏…');
-    window.pywebview.api.launch_game().then(function (res) {
+    mode = mode || 'steam';
+    toast(mode === 'direct' ? '正在直接启动游戏（非 Steam）…' : '正在通过 Steam 启动游戏…');
+    window.pywebview.api.launch_game(mode).then(function (res) {
       if (!res || !res.ok) toast('启动失败：' + ((res && res.message) || '未知错误'));
       else toast(res.message);
     }).catch(function (err) { toast('启动失败：' + err); });
@@ -1032,7 +1033,8 @@ __PAGE_JS__
   }
 
   document.addEventListener('click', function (e) {
-    if (e.target.closest('#launch-game')) { launchGame(); return; }
+    if (e.target.closest('#launch-game-direct')) { launchGame('direct'); return; }
+    if (e.target.closest('#launch-game')) { launchGame('steam'); return; }
     if (e.target.closest('#open-data')) { open(); return; }
     if (e.target.closest('#data-close') || e.target === modal) { close(); return; }
     var openBtn = e.target.closest('.data-open');
@@ -1757,10 +1759,10 @@ class Api:
     def list_csvs(self):
         return list_csvs()
 
-    def launch_game(self):
-        """通过 Steam 启动游戏（老版同款：只走 Steam 协议，不直接拉 exe）。"""
+    def launch_game(self, mode="steam"):
+        """启动游戏：mode=steam 走 Steam 协议；mode=direct 直接用设置里的非 Steam 路径。"""
         try:
-            ok, msg = T.launch_game()
+            ok, msg = T.launch_game(mode)
             return {"ok": ok, "message": msg}
         except Exception as e:          # noqa: BLE001
             return {"ok": False, "message": "启动失败：%s" % e}
