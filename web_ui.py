@@ -1830,7 +1830,27 @@ def main(argv=None):
     ap.add_argument("--compare-b", help="[compare page] CSV path B (pre-computed demo pair)")
     args = ap.parse_args(argv)
 
-    csv_path = pick_csv(args.csv)
+    try:
+        csv_path = pick_csv(args.csv)
+    except SystemExit as _e:
+        _msg = str(_e)
+        if not (args.html or args.shot):
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    None,
+                    "没找到抓包数据（*.csv）。\n\n"
+                    "程序会在下面这个目录里找：\n%s\n\n"
+                    "解决办法：\n"
+                    "1. 把抓包导出的 CSV 放进上面这个目录；\n"
+                    "2. 或者到「设置」里把「抓包输出目录」改成放 CSV 的文件夹；\n"
+                    "3. 安装包正常安装时会自带一份示例数据，可以直接先看界面。\n\n"
+                    "（改动路径后重启程序生效）" % T.OUTDIR,
+                    "车辆数据分析器 - 没有找到数据", 0x40)
+            except Exception:  # noqa: BLE001
+                pass
+        print(_msg)
+        return 1
     print("csv: %s" % os.path.basename(csv_path))
 
     valid_pages = ["hist"] + [m.KEY for m in PARTS.PAGES]
