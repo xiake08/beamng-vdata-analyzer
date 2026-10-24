@@ -7,6 +7,14 @@
 
 > 界面是 pywebview + HTML/CSS 手写的 BeamNG 风格 Web UI，纯本地运行、不联网。
 
+## v2.1 更新
+
+- 游戏内面板点「停止」会**自动导出 CSV**（原来只停止，要再点一次导出；忘了点就丢数据）
+- 面板导出后提示「已导出 CSV」，扩展状态文件里记录最近导出文件名
+- 注册了 `roadprofile_*` 输入动作，修掉 BeamNG 0.40.3 启动时 inputmap 报 action 找不到的警告
+- 桌面端每 3 秒轮询时，从游戏目录导入新抓包会弹提示「已导入 N 份」
+- 顶部两个启动按钮：`Steam 启动` / `非 Steam 启动`（设置页填游戏根目录 `BeamNG.drive.exe`）
+
 ![总览](docs/screenshots/all_pages.jpg)
 
 ## 功能

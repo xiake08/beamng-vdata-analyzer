@@ -976,6 +976,9 @@ __PAGE_JS__
     window.pywebview.api.poll().then(function (res) {
       if (!res) return;
       updateLive(res.status);
+      if (res.moved) {
+        toast('已从游戏目录导入 ' + res.moved + ' 份新抓包');
+      }
       if (res.auto_loaded) {
         toast('检测到新数据「' + res.auto_name + '」，正在自动读取…');
       } else if (res.new_available) {

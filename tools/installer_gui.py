@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""车辆数据分析器 v2.0 安装程序（源码，放 tools/installer_gui.py）。
+"""车辆数据分析器 v2.1 安装程序（源码，放 tools/installer_gui.py）。
 
 构建（无空格路径）：app.zip / app.ico 与脚本同目录
-pyinstaller --onefile --windowed --name 车辆数据分析器_v2.0_安装程序 --icon app.ico --add-data "app.zip;." --add-data "app.ico;." installer_gui.py
+pyinstaller --onefile --windowed --name 车辆数据分析器_v2.1_安装程序 --icon app.ico --add-data "app.zip;." --add-data "app.ico;." installer_gui.py
 
 功能：
 - 检测旧版本：注册表卸载项（关键字 车辆/beamng_road_tool/roadProfile）、常见目录、
@@ -24,7 +24,7 @@ import zipfile
 from tkinter import filedialog, messagebox, ttk
 
 APP_NAME = "车辆数据分析器"
-VERSION = "2.0"
+VERSION = "2.1"
 UNINSTALLER = "卸载.exe"
 DEFAULT_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                            APP_NAME)
