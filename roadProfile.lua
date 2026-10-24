@@ -20,6 +20,7 @@ local samples, idx, dist = {}, 0, 0
 local lastPos = nil
 local lastCmd = ""
 local lastVehId = nil
+local lastDump = ""
 local probeErr = 0
 
 local vehInfo = { modelName = "?", model = "?", cfgName = "?", cfgKey = "?" }
@@ -242,7 +243,18 @@ end
 
 function M.stop()
   recording = false
-  print("[roadProfile] 停止记录，共 " .. #samples .. " 点")
+  local n = #samples
+  print("[roadProfile] 停止记录，共 " .. n .. " 点")
+  -- 停止时自动导出：用户最自然的流程（开始 → 跑 → 停止）就能拿到 CSV
+  if n >= 10 then
+    local f = M.dump(nil)
+    if f then
+      print("[roadProfile] 已自动导出: " .. tostring(f))
+      lastDump = tostring(f)
+    else
+      print("[roadProfile] 自动导出失败（稍后可点面板「导出」重试）")
+    end
+  end
   return true
 end
 
@@ -320,6 +332,7 @@ function M.dump(baseName, quiet)
     writeFile("roadProfile_error.txt", "dump error: " .. tostring(res) .. "\n")
     return nil
   end
+  if res then lastDump = tostring(res) end
   return res
 end
 
@@ -432,10 +445,10 @@ function M.onUpdate(dtReal, dtSim, dt)
 
     writeFile(F_STATUS, string.format(
       "recording=%d\nsamples=%d\ndist=%.1f\nlevel=%s\ndumped=%d\nprobeerr=%d\nfallback=0\n" ..
-      "vehmodel=%s\nvehname=%s\ncfgkey=%s\ncfgname=%s\n",
+      "vehmodel=%s\nvehname=%s\ncfgkey=%s\ncfgname=%s\nlastdump=%s\n",
       recording and 1 or 0, #samples, dist, levelName(), #samples, probeErr,
       tostring(vehInfo.model), tostring(vehInfo.modelName),
-      tostring(vehInfo.cfgKey), tostring(vehInfo.cfgName)))
+      tostring(vehInfo.cfgKey), tostring(vehInfo.cfgName), tostring(lastDump)))
 
     local cmd = readFile(F_CMD)
     if cmd and cmd ~= "" and cmd ~= lastCmd then
@@ -496,7 +509,20 @@ end
 
 function M.onClientEnd() shutdown("clientEnd") end
 function M.onExtensionUnloaded() shutdown("unloaded") end
+-- 注册输入动作：mod 自带 inputmap 引用了这几个 action，不注册会报
+-- "Couldn't find action roadprofile_* in actions lookup table" 并让快捷键失效
+local INPUT_ACTIONS = {
+  { "roadprofile_toggle", "路面抓包：开始 / 停止" },
+  { "roadprofile_restart", "路面抓包：清空重记" },
+  { "roadprofile_dump", "路面抓包：导出 CSV" },
+}
+
 function M.onExtensionLoaded()
+  if core_input_actions and core_input_actions.addAction then
+    for _, a in ipairs(INPUT_ACTIONS) do
+      pcall(core_input_actions.addAction, a[1], { title = a[2] })
+    end
+  end
   print("[roadProfile] 路面抓包就绪（重写版）: extensions.roadProfile.start()")
 end
 
