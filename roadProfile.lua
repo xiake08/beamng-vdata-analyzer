@@ -241,6 +241,15 @@ function M.start()
   return true
 end
 
+-- 面板/外部脚本可能用不同名字调导出，统一都指到 dump
+function M.export()
+  return M.dump(nil)
+end
+
+function M.exportNow()
+  return M.dump(nil)
+end
+
 function M.stop()
   recording = false
   local n = #samples
@@ -277,6 +286,7 @@ end
 
 local function dumpImpl(baseName, quiet)
   local n = #samples
+  print("[roadProfile] dump 开始，采样=" .. tostring(n))
   if n < 10 then
     if not quiet then print("[roadProfile] 采样太少，不导出") end
     return nil
@@ -458,7 +468,7 @@ function M.onUpdate(dtReal, dtSim, dt)
       if c == "start" then M.start()
       elseif c == "stop" then M.stop()
       elseif c == "toggle" then M.toggle()
-      elseif c == "dump" then M.dump(nil) end
+      elseif c == "dump" or c == "export" or c == "exportcsv" then M.dump(nil) end
     end
   end
 

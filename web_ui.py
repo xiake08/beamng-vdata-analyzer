@@ -772,6 +772,7 @@ __PAGES__
       <div class="modal-list" id="data-list"></div>
       <div class="modal-foot">
         <button id="data-browse">选择 CSV 文件…</button>
+        <button id="data-export" title="让游戏把当前抓包导出成 CSV（游戏内面板导出没反应时用这个）">⤓ 让游戏导出当前抓包</button>
         <span class="hint" id="data-path-hint"></span>
       </div>
     </div>
@@ -1059,6 +1060,17 @@ __PAGE_JS__
     var yes = e.target.closest('.confirm-yes');
     if (yes) { doDelete(yes.getAttribute('data-path')); return; }
     if (e.target.closest('.confirm-no')) { open(); return; }
+    if (e.target.closest('#data-export')) {
+      if (!bridgeReady()) { toast('真窗口里才能让游戏导出'); return; }
+      toast('已向游戏发送导出命令…');
+      window.pywebview.api.export_game_data().then(function (r) {
+        if (!r || !r.ok) { toast('发送失败：' + ((r && r.error) || '未知错误')); return; }
+        toast(r.message || '已发送，几秒后自动导入');
+        setTimeout(pollLive, 2500);
+        setTimeout(pollLive, 6000);
+      }).catch(function (err) { toast('发送失败：' + err); });
+      return;
+    }
     if (e.target.closest('#data-browse')) {
       if (!bridgeReady()) { toast('静态预览不能选文件，请用真窗口'); return; }
       window.pywebview.api.pick_csv_file().then(function (res) {
@@ -1761,6 +1773,18 @@ class Api:
 
     def list_csvs(self):
         return list_csvs()
+
+    def export_game_data(self):
+        """给游戏内扩展发 dump 命令（写 cmd 文件），让它把当前抓包导出成 CSV。"""
+        try:
+            if not os.path.isdir(T.USERPATH):
+                return {"ok": False, "error": "游戏用户目录不存在：%s" % T.USERPATH}
+            ok = T.send_command("dump")
+            if not ok:
+                return {"ok": False, "error": "写命令文件失败：%s" % T.F_CMD}
+            return {"ok": True, "message": "已让游戏导出当前抓包，几秒后自动导入"}
+        except Exception as e:          # noqa: BLE001
+            return {"ok": False, "error": "%s" % e}
 
     def launch_game(self, mode="steam"):
         """启动游戏：mode=steam 走 Steam 协议；mode=direct 直接用设置里的非 Steam 路径。"""

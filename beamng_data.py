@@ -180,6 +180,25 @@ def install_to_game(userpath):
             msgs.append("已安装 " + os.path.basename(dst))
         except OSError as e:
             msgs.append("失败 %s: %s" % (os.path.basename(dst), e))
+    # ★ 0.40.3 的 UI app 列表会缓存，mod zip 里的 app 可能不被识别；
+    # 再把 zip 里的 ui/modules/apps/* 解成用户目录下的实体文件夹，保证一定能读到。
+    try:
+        import zipfile as _zf
+        zsrc = _find_mod_file("roadProfileUI.zip")
+        if os.path.exists(zsrc):
+            with _zf.ZipFile(zsrc) as z:
+                for name in z.namelist():
+                    if not name.startswith("ui/modules/apps/"):
+                        continue
+                    if name.endswith("/"):
+                        continue
+                    dst = os.path.join(userpath, name.replace("/", os.sep))
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    with z.open(name) as f, open(dst, "wb") as out:
+                        out.write(f.read())
+            msgs.append("已解压面板到 ui/modules/apps")
+    except OSError as e:
+        msgs.append("解压面板失败: %s" % e)
     return done, msgs
 
 
@@ -1041,6 +1060,19 @@ def relocate():
         except OSError:
             pass
     return moved
+
+
+def send_command(cmd):
+    """给游戏内扩展发命令（写 roadProfile_cmd.txt，扩展每帧轮询执行）。
+
+    命令格式：<毫秒时间戳>,<cmd>；扩展会去掉前缀执行 cmd。
+    """
+    try:
+        with open(F_CMD, "w", encoding="utf-8") as f:
+            f.write("%d,%s\n" % (int(time.time() * 1000), cmd))
+        return True
+    except OSError:
+        return False
 
 
 def read_status():
