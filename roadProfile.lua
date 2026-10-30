@@ -488,22 +488,6 @@ end
 -- ── 退出 ────────────────────────────────────────────────────────────────
 local shuttingDown = false
 
--- ══════════════════════════════════════════════════════════════════════
--- catfix: 0.40.2+ 的 UI 在 mod 挂载前就缓存了 HUD app 清单，之后不再刷新，
--- 于是 mod 自带的 app 永远显示 "Unknown app"。这里在启动后主动 trigger
--- UiAppsChanged，让 UI 重新拉一次清单（等价于手动 Reload UI）。
--- ══════════════════════════════════════════════════════════════════════
-local CATFIX_TIMES = { 4.0, 10.0, 20.0, 40.0, 75.0, 120.0, 180.0 }
-local catfixIdx = 1
-local catfixT = 0
-local function refreshUiAppCatalogue()
-  local ok = pcall(function()
-    if not (extensions and extensions.ui_apps) then return end
-    guihooks.trigger("UiAppsChanged", { files = {}, apps = {} })
-  end)
-  print("[roadProfile][catfix] UiAppsChanged triggered: " .. tostring(ok))
-end
-
 local function shutdown(reason)
   if shuttingDown then return end
   shuttingDown = true
@@ -519,33 +503,9 @@ end
 
 function M.onClientEnd() shutdown("clientEnd") end
 function M.onExtensionUnloaded() shutdown("unloaded") end
--- 注册输入动作：mod 自带 inputmap 引用了这几个 action，不注册会报
--- "Couldn't find action roadprofile_* in actions lookup table" 并让快捷键失效
-local INPUT_ACTIONS = {
-  { "roadprofile_toggle", "路面抓包：开始 / 停止" },
-  { "roadprofile_restart", "路面抓包：清空重记" },
-  { "roadprofile_dump", "路面抓包：导出 CSV" },
-}
-
 function M.onExtensionLoaded()
-  if core_input_actions and core_input_actions.addAction then
-    for _, a in ipairs(INPUT_ACTIONS) do
-      pcall(core_input_actions.addAction, a[1], { title = a[2] })
-    end
-  end
   print("[roadProfile] 路面抓包就绪（重写版）: extensions.roadProfile.start()")
 end
 
-
--- catfix 钩子：按真实时间在启动后触发几次清单刷新
-local _catOrigUpdate = M.onUpdate
-M.onUpdate = function(dtReal, dtSim, dt)
-  if _catOrigUpdate then _catOrigUpdate(dtReal, dtSim, dt) end
-  catfixT = catfixT + (tonumber(dtReal) or 0)
-  if catfixIdx <= #CATFIX_TIMES and catfixT >= CATFIX_TIMES[catfixIdx] then
-    catfixIdx = catfixIdx + 1
-    pcall(refreshUiAppCatalogue)
-  end
-end
 
 return M

@@ -199,6 +199,15 @@ def install_to_game(userpath):
             msgs.append("已解压面板到 ui/modules/apps")
     except OSError as e:
         msgs.append("解压面板失败: %s" % e)
+    # 旧版 mod 留下的键盘映射引用了已不存在的 action，会让整个 UI 反复刷清单；
+    # 装 mod 时顺手清掉（备份成 .bak）
+    try:
+        kb = os.path.join(userpath, "settings", "inputmaps", "keyboard_roadprofile.json")
+        if os.path.isfile(kb):
+            os.replace(kb, kb + ".bak")
+            msgs.append("已清理旧键盘映射")
+    except OSError:
+        pass
     return done, msgs
 
 

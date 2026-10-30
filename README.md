@@ -1,4 +1,4 @@
-﻿# 车辆数据分析器（BeamNG 跑图数据采集 · 悬挂调校助手）
+# 车辆数据分析器（BeamNG 跑图数据采集 · 悬挂调校助手）
 
 **[⬇️ 下载 Release（Windows 安装包）](https://github.com/xiake08/beamng-vdata-analyzer/releases/latest)**
 
@@ -14,7 +14,8 @@
 - 装 mod 时会把面板同时解压成用户目录实体文件（不再只依赖 mod zip 挂载，解决别人装上不识别）
 - 游戏内面板点「停止」会**自动导出 CSV**（原来只停止，要再点一次导出；忘了点就丢数据）
 - 面板导出后提示「已导出 CSV」，扩展状态文件里记录最近导出文件名
-- 注册了 `roadprofile_*` 输入动作，修掉 BeamNG 0.40.3 启动时 inputmap 报 action 找不到的警告
+- **移除 catfix**：不再在启动后反复触发 `UiAppsChanged`（它会让整个游戏 UI 反复重载）；面板识别改由用户目录实体文件保证
+- 装 mod 时顺手清理旧版留下的 `keyboard_roadprofile.json`（引用已不存在的 action，会让 UI 反复刷新清单）
 - 桌面端每 3 秒轮询时，从游戏目录导入新抓包会弹提示「已导入 N 份」
 - 顶部两个启动按钮：`Steam 启动` / `非 Steam 启动`（设置页填游戏根目录 `BeamNG.drive.exe`）
 
