@@ -188,7 +188,7 @@ def install_to_game(userpath):
         if os.path.exists(zsrc):
             with _zf.ZipFile(zsrc) as z:
                 for name in z.namelist():
-                    if not name.startswith("ui/modules/apps/"):
+                    if not name.startswith("ui/modules/apps/roadProfile/"):
                         continue
                     if name.endswith("/"):
                         continue
