@@ -13,6 +13,7 @@ import importlib
 MODULE_NAMES = [
     "p_profile",
     "p_dyno",
+    "p_engine",
     "p_wheels",
     "p_wave",
     "p_pedals",

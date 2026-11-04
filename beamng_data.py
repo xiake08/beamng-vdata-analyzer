@@ -652,7 +652,199 @@ def analyze(path):
     lowc = sum(hist["Fc"][:2]) + sum(hist["Rc"][:2])
     highc = sum(hist["Fc"][6:]) + sum(hist["Rc"][6:])
     res["pct_low"], res["pct_high"] = lowc / tot * 100, highc / tot * 100
+    try:
+        res["engine"] = analyze_engine(rows, g)
+    except Exception:                 # noqa: BLE001 发动机数据坏了不能拖垮整页
+        res["engine"] = {"has": False, "series": {}, "stats": {}, "problems": []}
     return res
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 发动机数据（CSV 的 eng 列：k=v;k=v…，字段名随车不同，这里做同义词归一化）
+# ══════════════════════════════════════════════════════════════════════
+_ENG_SYN = {
+    "rpm": ("rpm",),
+    "torque": ("torque", "engine_torque", "enginetorque", "engtorque"),
+    "boost": ("boost", "turbo_boost", "turboboost", "boost_pressure",
+              "turbo_pressure", "turbo_boost_pressure"),
+    "afr": ("afr", "air_fuel_ratio", "airfuelratio", "afr_ratio"),
+    "lambda": ("lambda", "lambda_value", "lambda_ratio"),
+    "water": ("water_temp", "watertemp", "coolant_temp", "coolanttemp",
+              "water_temperature", "coolant_temperature"),
+    "oil": ("oil_temp", "oiltemp", "oil_temperature"),
+    "oilp": ("oil_pressure", "oilpressure", "oil_press", "oilpressurebar"),
+    "load": ("engine_load", "engineload", "load", "engine_load_value"),
+    "throttle": ("throttle", "throttle_input", "throttleposition"),
+    "damage": ("engine_damage", "engine_damage_ratio", "enginehealth",
+               "engine_health", "health", "damage"),
+    "egt": ("exhaust_temp", "exhausttemp", "egt", "exhaust_gas_temp"),
+    "intake": ("intake_temp", "intaketemp", "manifold_temp", "manifoldtemp"),
+    "fuel": ("fuel", "fuel_level", "fuellevel", "fuel_ratio"),
+}
+_ENG_LABEL = {
+    "rpm": "转速 rpm", "torque": "发动机扭矩 Nm", "boost": "增压 bar",
+    "afr": "空燃比 AFR", "lambda": "Lambda", "water": "水温 °C",
+    "oil": "油温 °C", "oilp": "机油压力 bar", "load": "发动机负荷 %",
+    "throttle": "节气门 %", "damage": "发动机损伤 %", "egt": "排气温度 °C",
+    "intake": "进气温度 °C", "fuel": "油量",
+}
+
+
+def _parse_eng(txt):
+    """'rpm=1200;water_temp=88;…' -> dict（同名取第一个）"""
+    out = {}
+    if not txt or not isinstance(txt, str):
+        return out
+    for part in txt.split(";"):
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        try:
+            out[k.strip().lower()] = float(v)
+        except ValueError:
+            continue
+    return out
+
+
+def _eng_pick(eng, row, field):
+    names = _ENG_SYN.get(field, ())
+    for n in names:
+        if n in eng:
+            return eng[n]
+    for n in names:                      # 旧 CSV 里偶尔直接有同名列
+        v = row.get(n)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
+def analyze_engine(rows, g):
+    """从 rows 的 eng 列提取发动机时序 + 统计 + 问题诊断。"""
+    res = {"has": False, "series": {}, "stats": {}, "problems": [], "labels": _ENG_LABEL}
+    if not rows:
+        return res
+    parsed = []
+    any_data = False
+    for r in rows:
+        eng = _parse_eng(r.get("eng"))
+        if eng:
+            any_data = True
+        parsed.append(eng)
+    if not any_data:
+        return res
+    res["has"] = True
+
+    def series_of(field, step=1):
+        out = []
+        for i in range(0, len(rows), step):
+            v = _eng_pick(parsed[i], rows[i], field)
+            if v is None:
+                continue
+            out.append([round(float(g(rows[i], "d")), 1), round(float(v), 3)])
+        return out
+
+    raw = {k: series_of(k) for k in _ENG_SYN}
+    # 归一化：温度 K -> °C；增压 psi -> bar；lambda -> AFR；0-1 -> 百分比
+    for k in ("water", "oil", "egt", "intake"):
+        vals = [p[1] for p in raw[k]]
+        if vals and max(vals) > 200:
+            raw[k] = [[p[0], round(p[1] - 273.15, 1)] for p in raw[k]]
+    vals = [p[1] for p in raw["boost"]]
+    if vals and max(abs(v) for v in vals) > 5:
+        raw["boost"] = [[p[0], round(p[1] / 14.5038, 2)] for p in raw["boost"]]
+    lam = [p[1] for p in raw["lambda"]]
+    if lam and not raw["afr"]:
+        raw["afr"] = [[p[0], round(p[1] * 14.7, 2)] for p in raw["lambda"]]
+    else:
+        afr = [p[1] for p in raw["afr"]]
+        if afr and max(afr) < 3.0:       # 有些车把 lambda 填在 AFR 字段
+            raw["afr"] = [[p[0], round(p[1] * 14.7, 2)] for p in raw["afr"]]
+    for k in ("load", "throttle"):
+        vals = [p[1] for p in raw[k]]
+        if vals and max(vals) <= 1.5:
+            raw[k] = [[p[0], round(p[1] * 100, 1)] for p in raw[k]]
+    vals = [p[1] for p in raw["damage"]]
+    if vals and max(vals) <= 1.0:
+        raw["damage"] = [[p[0], round(p[1] * 100, 1)] for p in raw["damage"]]
+
+    # 抽样给前端（最多 ~450 点/序列）
+    ser = {}
+    for k, pts in raw.items():
+        if len(pts) > 450:
+            stepn = max(1, len(pts) // 450)
+            pts = pts[::stepn]
+        ser[k] = pts
+    res["series"] = {k: v for k, v in ser.items() if v}
+
+    def col(field):
+        return [p[1] for p in raw.get(field, [])]
+
+    def stats_of(field):
+        vals = col(field)
+        if not vals:
+            return None
+        return {"min": round(min(vals), 2), "max": round(max(vals), 2),
+                "avg": round(sum(vals) / len(vals), 2), "n": len(vals)}
+
+    for f in _ENG_SYN:
+        st = stats_of(f)
+        if st:
+            res["stats"][f] = st
+
+    # ── 诊断规则（阈值保守，只报明显异常）────────────────
+    probs = res["problems"]
+
+    def add(tone, title, text):
+        probs.append({"tone": tone, "title": title, "text": text})
+
+    w = res["stats"].get("water")
+    if w:
+        if w["max"] >= 110:
+            add("bad", "水温过高 %.0f°C" % w["max"],
+                "冷却系统压不住：检查水箱风扇/节温器/冷却液量，或降低增压/负载。")
+        elif w["max"] >= 100:
+            add("warn", "水温偏高 %.0f°C" % w["max"],
+                "接近开锅，长时间高负载前建议加风扇/加大水箱。")
+    o = res["stats"].get("oil")
+    if o:
+        if o["max"] >= 130:
+            add("bad", "机油温度过高 %.0f°C" % o["max"],
+                "机油会快速劣化：加装油冷或在设置里降低负载/换高粘度机油。")
+        elif o["max"] >= 115:
+            add("warn", "机油温度偏高 %.0f°C" % o["max"], "关注长时间高转表现。")
+    op = res["stats"].get("oilp")
+    if op and op["min"] < 0.8 and op["min"] > 0:
+        add("bad", "机油压力偏低（最低 %.2f bar）" % op["min"],
+            "检查机油量/油泵/油路；高压低转时压力过低容易拉瓦。")
+    b = res["stats"].get("boost")
+    if b and b["max"] > 2.5:
+        add("warn", "增压偏高 %.2f bar" % b["max"],
+            "确认泄压阀/旁通阀工作正常，涡轮压力调太高容易爆缸。")
+    afr = res["stats"].get("afr")
+    if afr:
+        if afr["max"] >= 16.0:
+            add("warn", "空燃比偏稀（最高 %.1f）" % afr["max"],
+                "高负载混合气偏稀：检查喷油/油压/进气漏气，容易爆震过热。")
+        elif afr["min"] <= 9.5:
+            add("warn", "空燃比偏浓（最低 %.1f）" % afr["min"],
+                "混合气偏浓：动力变闷、油耗高，检查喷油脉宽/进气。")
+    dmg = res["stats"].get("damage")
+    if dmg and dmg["max"] > 4.0:
+        add("bad", "发动机损伤 %.0f%%" % dmg["max"],
+            "检查是否有爆震/过热历史；损伤不可逆，先修好再调校。")
+    elif dmg and dmg["max"] > 1.0:
+        add("warn", "发动机轻微损伤 %.1f%%" % dmg["max"],
+            "留意水温/油温与爆震，别继续加负载。")
+    rpm = res["stats"].get("rpm")
+    if rpm and rpm["max"] >= 7000:
+        add("info", "最高转速 %.0f rpm" % rpm["max"], "注意断油点和高转保护。")
+    if not probs:
+        add("ok", "没发现明显发动机问题",
+            "水温/油温/油压/空燃比都在合理范围内；继续观察高负载段即可。")
+    return res
+
 
 
 def conclusions(a, b=None):

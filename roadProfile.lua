@@ -123,6 +123,26 @@ for _, b in pairs(v.data.beams) do
   end
 end
 local ev = (electrics and electrics.values) or {}
+-- 发动机相关：不同车/版本字段名不同，这里按关键词扫一遍 electrics 的数值字段，
+-- 打包成 k=v;k=v 字符串随采样一起存（桌面端再按同义词归一化）
+local ENG_KW = {
+  'rpm', 'torque', 'boost', 'turbo', 'afr', 'airfuel', 'lambda', 'fuel',
+  'oil', 'water', 'coolant', 'temp', 'pressure', 'load', 'throttle', 'gear',
+  'clutch', 'ignition', 'timing', 'damage', 'health', 'exhaust', 'manifold',
+  'intake', 'knock', 'misfire', 'limiter', 'wastegate', 'egt', 'mixture', 'engine'
+}
+local eng = {}
+for k, v in pairs(ev) do
+  local lk = tostring(k):lower()
+  if type(v) == 'number' and v == v then
+    local hit = false
+    for _, kw in ipairs(ENG_KW) do
+      if lk:find(kw, 1, true) then hit = true break end
+    end
+    if hit then eng[#eng + 1] = lk .. '=' .. string.format('%.4g', v) end
+  end
+end
+table.sort(eng)
 -- 刹车输入在不同车/版本里字段名不一样，全试一遍
 local brkPa = ev.braking
 if brkPa == nil then brkPa = ev.brake end
@@ -139,12 +159,13 @@ local parts = {
   string.format('%q', table.concat(gml, '|')),
   string.format('%.1f', N(ev.rpm)), string.format('%.3f', N(ev.engineTorque)), string.format('%.0f', N(ev.gear)),
   "''",
+  string.format('%q', table.concat(eng, ';')),
 }
 obj:queueGameEngineLua('extensions.roadProfile.push(' .. table.concat(parts, ',') .. ')')
 ]]
 
 -- ── 接收采样点 ──────────────────────────────────────────────────────────
-function M.push(x, y, z, speed, vz, ra, pa, steer, wheelStr, shockStr, thr, brk, gmStr, rpm, tq, gear, axStr)
+function M.push(x, y, z, speed, vz, ra, pa, steer, wheelStr, shockStr, thr, brk, gmStr, rpm, tq, gear, axStr, engStr)
   if not recording then return end
   idx = idx + 1
   if lastPos then
@@ -167,6 +188,7 @@ function M.push(x, y, z, speed, vz, ra, pa, steer, wheelStr, shockStr, thr, brk,
     thr = tonumber(thr) or 0, brk = tonumber(brk) or 0,
     gm = gmStr or "", rpm = tonumber(rpm) or 0,
     tq = tonumber(tq) or 0, gear = tonumber(gear) or 0, ax = axStr or "",
+    eng = engStr or "",
   }
   liveUpdate(samples[idx])
   if idx > MAX_SAMPLES then
@@ -192,6 +214,7 @@ function M.getLive()
     end
     return {
       recording = recording and 1 or 0,
+      paused = lastPaused and 1 or 0,
       samples = #samples,
       dist = math.floor(dist + 0.5),
       level = levelName(),
@@ -299,18 +322,18 @@ local function dumpImpl(baseName, quiet)
     print("[roadProfile] 无法写文件: " .. csv)
     return nil
   end
-  c:write("t,d,x,y,z,v,vz,rollAV,pitchAV,steer,terrainH,FLsp,FLld,FRsp,FRld,RLsp,RLld,RRsp,RRld,FLsv,FRsv,RLsv,RRsv,thr,brk,gm,rpm,tq,gear,ax\n")
+  c:write("t,d,x,y,z,v,vz,rollAV,pitchAV,steer,terrainH,FLsp,FLld,FRsp,FRld,RLsp,RLld,RRsp,RRld,FLsv,FRsv,RLsv,RRsv,thr,brk,gm,rpm,tq,gear,ax,eng\n")
   for i = 1, n do
     local s = samples[i]
     local function W(k, f) return (s.w and s.w[k] and s.w[k][f]) or 0 end
     local function S(k) return (s.s and s.s["shock_" .. k]) or 0 end
     c:write(string.format(
-      "%.2f,%.1f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,%.4f,%.3f,0,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.4f,%.4f,%.4f,%.4f,%.3f,%.3f,%q,%.1f,%.3f,%.0f,%q\n",
+      "%.2f,%.1f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,%.4f,%.3f,0,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.4f,%.4f,%.4f,%.4f,%.3f,%.3f,%q,%.1f,%.3f,%.0f,%q,%q\n",
       s.t, s.d, s.x, s.y, s.z, s.v, s.vz, s.ra, s.pa, s.st,
       W("FL", "sp"), W("FL", "ld"), W("FR", "sp"), W("FR", "ld"),
       W("RL", "sp"), W("RL", "ld"), W("RR", "sp"), W("RR", "ld"),
       S("FL"), S("FR"), S("RL"), S("RR"),
-      s.thr, s.brk, s.gm, s.rpm, s.tq, s.gear, s.ax))
+      s.thr, s.brk, s.gm, s.rpm, s.tq, s.gear, s.ax, s.eng or ""))
   end
   c:close()
 
@@ -412,9 +435,32 @@ end
 
 -- ── 每帧 ────────────────────────────────────────────────────────────────
 local probeTimer, slowTimer = 0, 0
+local lastPaused = false
+local simFrozenT = 0
+local pauseLogged = false
+
+-- 游戏暂停判断：优先看 core_gamestate.state.paused；拿不到就看仿真时间是否冻结。
+-- 暂停时 dtSim 为 0 —— 采样用 dtSim 累加，所以会自然停采，继续后接着记、时间轴不跳。
+local function updatePaused(dtReal, dtSim)
+  local paused = false
+  pcall(function()
+    local gs = core_gamestate
+    if gs and gs.state and gs.state.paused then paused = true end
+  end)
+  if not paused then
+    if recording and (tonumber(dtSim) or 0) <= 0 then
+      simFrozenT = simFrozenT + (tonumber(dtReal) or 0)
+    else
+      simFrozenT = 0
+    end
+    paused = simFrozenT > 0.3
+  end
+  return paused
+end
 
 local liveTimer = 0
 function M.onUpdate(dtReal, dtSim, dt)
+  lastPaused = updatePaused(dtReal, dtSim)
   -- 每 0.3 秒把实时数据推给游戏内面板（比 engineLua 回调可靠）
   liveTimer = liveTimer + (dtReal or 0)
   if liveTimer > 0.3 then
@@ -424,6 +470,11 @@ function M.onUpdate(dtReal, dtSim, dt)
   slowTimer = slowTimer + (dtReal or 0)
   if slowTimer > 1.0 then
     slowTimer = 0
+    if lastPaused ~= pauseLogged then
+      pauseLogged = lastPaused
+      print("[roadProfile] 游戏" .. (lastPaused and "已暂停：采样同步暂停（记录不停止）"
+                                          or "继续：采样恢复"))
+    end
 
     local veh = playerVeh()
     if veh then
@@ -455,10 +506,11 @@ function M.onUpdate(dtReal, dtSim, dt)
 
     writeFile(F_STATUS, string.format(
       "recording=%d\nsamples=%d\ndist=%.1f\nlevel=%s\ndumped=%d\nprobeerr=%d\nfallback=0\n" ..
-      "vehmodel=%s\nvehname=%s\ncfgkey=%s\ncfgname=%s\nlastdump=%s\n",
+      "vehmodel=%s\nvehname=%s\ncfgkey=%s\ncfgname=%s\nlastdump=%s\npaused=%d\n",
       recording and 1 or 0, #samples, dist, levelName(), #samples, probeErr,
       tostring(vehInfo.model), tostring(vehInfo.modelName),
-      tostring(vehInfo.cfgKey), tostring(vehInfo.cfgName), tostring(lastDump)))
+      tostring(vehInfo.cfgKey), tostring(vehInfo.cfgName), tostring(lastDump),
+      (lastPaused and 1 or 0)))
 
     local cmd = readFile(F_CMD)
     if cmd and cmd ~= "" and cmd ~= lastCmd then
@@ -473,7 +525,9 @@ function M.onUpdate(dtReal, dtSim, dt)
   end
 
   if not recording then return end
-  probeTimer = probeTimer + (dtReal or 0)
+  if lastPaused then return end
+  -- 用仿真时间累加：游戏暂停时 dtSim = 0，自然停止采样；恢复后接着记
+  probeTimer = probeTimer + (tonumber(dtSim) or 0)
   if probeTimer < PROBE_TIMER then return end
   probeTimer = 0
   local veh = playerVeh()

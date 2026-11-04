@@ -965,8 +965,13 @@ __PAGE_JS__
       return;
     }
     if (status.recording) {
-      el.classList.add('live-rec');
-      el.textContent = '● 正在记录 ' + (status.dist / 1000).toFixed(2) + ' km / ' + status.samples + ' 点';
+      if (status.paused) {
+        el.classList.add('live-wait');
+        el.textContent = '⏸ 游戏暂停 · 采样已同步暂停（记录未停止）· ' + (status.samples || 0) + ' 点';
+      } else {
+        el.classList.add('live-rec');
+        el.textContent = '● 正在记录 ' + (status.dist / 1000).toFixed(2) + ' km / ' + status.samples + ' 点';
+      }
     } else {
       el.textContent = '游戏在跑 · 抓包已停（' + (status.samples || 0) + ' 点）';
     }
