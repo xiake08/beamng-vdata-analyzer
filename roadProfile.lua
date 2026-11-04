@@ -23,6 +23,14 @@ local lastVehId = nil
 local lastDump = ""
 local probeErr = 0
 
+-- 采样计时（必须在 push() 之前声明，Lua 局部变量只在其声明之后可见）
+local probeTimer, slowTimer = 0, 0
+local realClock = 0         -- 累计实时时间（墙钟）：采样时间戳用它；暂停/不记录时不累计
+local startClock = 0        -- 本次记录开始时的 realClock（时间轴归零）
+local lastPaused = false
+local simFrozenT = 0
+local pauseLogged = false
+
 local vehInfo = { modelName = "?", model = "?", cfgName = "?", cfgKey = "?" }
 local live = nil
 local LIVE_BINS = { 0.02, 0.05, 0.10, 0.20, 0.30, 0.50, 0.80, 1.20, 2.00 }
@@ -504,15 +512,9 @@ function M.status()
 end
 
 -- ── 每帧 ────────────────────────────────────────────────────────────────
-local probeTimer, slowTimer = 0, 0
-local realClock = 0         -- 累计实时时间（墙钟）：采样时间戳用它，暂停/不记录不累计
-local startClock = 0        -- 本次记录开始时的 realClock（时间轴归零）
-local lastPaused = false
-local simFrozenT = 0
-local pauseLogged = false
 
 -- 游戏暂停判断：优先看 core_gamestate.state.paused；拿不到就看仿真时间是否冻结。
--- 暂停时 dtSim 为 0 —— 采样用 dtSim 累加，所以会自然停采，继续后接着记、时间轴不跳。
+-- 采样计时用实时 dtReal（暂停时不累计），暂停期间不发探针。
 local function updatePaused(dtReal, dtSim)
   local paused = false
   pcall(function()
