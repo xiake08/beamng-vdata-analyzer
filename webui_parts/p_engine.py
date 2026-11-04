@@ -49,7 +49,6 @@ def _stats_html(d):
     from .common import IC
     eng = d.get("engine") or {}
     st = eng.get("stats") or {}
-    fields = eng.get("fields") or {}
     boost = st.get("boost") or {}
     boost_psi = st.get("boost_psi") or {}
     afr = st.get("afr") or {}
@@ -67,54 +66,57 @@ def _stats_html(d):
             '<div class="stat-foot">%s</div></article>'
             % (tone, IC[icon], label, value, unit, foot))
 
-    card("#5B8FB9", "gauge", "峰值增压", _fmt(boost.get("max"), "", 2), "bar",
-         ("≈ %.0f psi · 本车最大 %.2f bar" % (boost_psi.get("max", 0),
-                                             (st.get("boostmax") or {}).get("bar", 0))) if boost
-         else "这辆车没有增压数据（自然吸气/柴油 NA 常见）")
-    card("#D9A24A", "pulse", "空燃比（全程）",
-         (_fmt(afr.get("min"), "", 1) + "–" + _fmt(afr.get("max"), "", 1)) if afr else "无数据",
-         ("AFR" if afr else ""), "负载下 11–15 为正常范围" if afr else "这辆车没有 AFR / Lambda 数据（官方电控里没这项）")
-    card("#4E9E7B", "clock", "最高水温", _fmt(water.get("max"), "", 0), "°C",
-         ("油温最高 %s °C%s" % (_fmt(oil.get("max"), "", 0),
-                                " · 超温报警 %.0f%% 时间" % oa["pct"] if oa.get("pct") is not None else ""))
-         if oil else ("最高转速 %.0f rpm" % (rpm.get("max") or 0)) if rpm else "没有温度字段")
+    if boost:
+        card("#5B8FB9", "gauge", "峰值增压", _fmt(boost.get("max"), "", 2), "bar",
+             "≈ %.0f psi · 本车最大 %.2f bar"
+             % (boost_psi.get("max", 0), (st.get("boostmax") or {}).get("bar", 0)))
+    if afr:
+        card("#D9A24A", "pulse", "空燃比（全程）",
+             _fmt(afr.get("min"), "", 1) + "–" + _fmt(afr.get("max"), "", 1), "AFR",
+             "负载下 11–15 为正常范围")
+    if water:
+        foot = ("油温最高 %s °C" % _fmt(oil.get("max"), "", 0)) if oil else \
+               ("最高转速 %.0f rpm" % (rpm.get("max") or 0)) if rpm else ""
+        card("#4E9E7B", "clock", "最高水温", _fmt(water.get("max"), "", 0), "°C", foot)
+    if not cards:
+        return ""
     return '<section class="stats">%s</section>' % "".join(cards)
+
 
 def _howto_card(d):
     from .common import IC
     items = [
         ("温度", "水温 80–105°C、油温 90–120°C。长时间往上爬 = 散热/机油扛不住。"),
-        ("机油压力", "怠速一般 ≥1 bar，高转 3–5 bar。高转掉到 0.x 就要查机油量/油泵。"),
         ("空燃比 AFR", "理论 14.7；全油门 11–13 算浓（保护发动机），>16 太稀容易爆震/过热。"),
         ("增压", "看你这台车的目标值；突然掉压/超压 = 泄压阀、管路或调校有问题。"),
         ("转速", "台阶 = 换挡；贴着红区不掉 = 可能限转/打滑；尖峰 = 断油或空转。"),
-        ("发动机损伤", "0 最好；涨到几个 % 就要查爆震/过热历史，损伤不可逆。"),
+        ("发动机状态", "正常 / 扭矩受限 / 已损坏停用；部位栏会列出损坏的具体部件。"),
     ]
     rows = "".join('<div class="eng-how-row"><b>%s</b><span>%s</span></div>' % (k, v)
                    for k, v in items)
     return """
       <article class="card eng-how-card">
-        <div class="panel-head"><div><h2>这一页怎么看</h2><p>先看温度/油压/空燃比，再看曲线形状</p></div></div>
+        <div class="panel-head"><div><h2>这一页怎么看</h2><p>先看温度/空燃比/增压，再看曲线形状</p></div></div>
         %s
-        <div class="hint">%s<span>横轴统一用时间，原地轰油门也能看。</span></div>
+        <div class="hint">%s<span>横轴统一用时间，原地轰油门也能看；没有的字段不会显示。</span></div>
       </article>""" % (rows, IC["info"])
 
 
 def _problems_card(d):
-    from .common import IC, esc
+    from .common import IC
     probs = (d.get("engine") or {}).get("problems") or []
     rows = []
-    for p in probs:
-        tone = p.get("tone", "ok")
+    for it in probs:
+        tone = it.get("tone", "ok")
         rows.append(
             '<div class="eng-prob eng-%s"><span class="eng-dot"></span>'
             '<div><b>%s</b><p>%s</p></div></div>'
-            % (esc(tone), esc(p.get("title", "")), esc(p.get("text", ""))))
+            % (tone, it.get("title", ""), it.get("text", "")))
     if not rows:
         rows = ['<div class="hint">%s<span>这份数据没有发动机异常。</span></div>' % IC["info"]]
     return """
       <article class="card eng-prob-card">
-        <div class="panel-head"><div><h2>发动机诊断</h2><p>按水温 / 油温 / 油压 / 空燃比 / 增压自动判断</p></div>
+        <div class="panel-head"><div><h2>发动机诊断</h2><p>按温度 / 空燃比 / 增压 / 损伤自动判断</p></div>
         <span class="mini-chip">%d 条</span></div>
         %s
       </article>""" % (len(probs), "".join(rows))
@@ -153,10 +155,18 @@ def _values_card(d):
         ("空燃比", rng("afr", "", 1)),
         ("水温", rng("water", "°C", 0)),
         ("油温", rng("oil", "°C", 0)),
-        ("机油超温报警", ("%.0f%% 时间" % st["oilalarm"]["pct"]) if st.get("oilalarm", {}).get("pct") is not None else "—"),
-        ("发动机状态", _eng_state(dmg)),
-        ("发动机损伤部位", "、".join(dmg.get("bad") or []) or ("无" if dmg.get("has") else "—")),
     ]
+    pct = (st.get("oilalarm") or {}).get("pct")
+    if pct:
+        rows.append(("机油超温报警", "%.0f%% 时间" % pct))
+    if dmg.get("has"):
+        rows.append(("发动机状态", _eng_state(dmg)))
+        bad = dmg.get("bad") or []
+        if bad:
+            rows.append(("发动机损伤部位", "、".join(bad[:8])))
+        elif _eng_state(dmg) != "正常":
+            rows.append(("发动机损伤部位", "无"))
+    rows = [(k, v) for k, v in rows if v not in ("—", "", None)]
     kv = "".join('<div class="kv-row"><dt>%s</dt><dd>%s</dd></div>' % (k, v) for k, v in rows)
     return """
       <article class="card">
@@ -216,6 +226,7 @@ CSS = """
 [data-page="engine"] .eng-how-row{display:flex;gap:8px;margin-top:7px;font-size:11.6px;line-height:1.5}
 [data-page="engine"] .eng-how-row b{flex:0 0 66px;color:var(--ink-2);font-size:11.8px}
 [data-page="engine"] .eng-how-row span{color:var(--muted)}
+[data-page="engine"] .stats{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 [data-page="engine"] .eng-left{display:flex;flex-direction:column;gap:16px;min-height:0}
 [data-page="engine"] .eng-chart{min-height:220px}
 [data-page="engine"] .eng-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
