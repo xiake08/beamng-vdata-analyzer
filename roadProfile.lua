@@ -250,7 +250,8 @@ function M.push(x, y, z, speed, vz, ra, pa, steer, wheelStr, shockStr, thr, brk,
     if n then s[n] = tonumber(bv) or 0 end
   end
   samples[idx] = {
-    t = idx / HZ, d = dist, x = x, y = y, z = z, v = speed, vz = vz,
+    t = (realClock > startClock and (realClock - startClock)) or (idx / HZ),
+    d = dist, x = x, y = y, z = z, v = speed, vz = vz,
     ra = ra, pa = pa, st = steer, w = w, s = s,
     thr = tonumber(thr) or 0, brk = tonumber(brk) or 0,
     gm = gmStr or "", rpm = tonumber(rpm) or 0,
@@ -325,6 +326,7 @@ end
 -- ── 控制 ────────────────────────────────────────────────────────────────
 function M.start()
   samples, idx, dist, lastPos = {}, 0, 0, nil
+  startClock = realClock
   resetLive()
   recording = true
   print("[roadProfile] 开始记录（10 Hz）")
@@ -395,7 +397,7 @@ local function dumpImpl(baseName, quiet)
     local function W(k, f) return (s.w and s.w[k] and s.w[k][f]) or 0 end
     local function S(k) return (s.s and s.s["shock_" .. k]) or 0 end
     c:write(string.format(
-      "%.2f,%.1f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,%.4f,%.3f,0,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.4f,%.4f,%.4f,%.4f,%.3f,%.3f,%q,%.1f,%.3f,%.0f,%q,%q\n",
+      "%.2f,%.1f,%.2f,%.2f,%.3f,%.2f,%.3f,%.4f,%.4f,%.3f,0,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.3f,%.0f,%.4f,%.4f,%.4f,%.4f,%.3f,%.3f,%q,%.1f,%.3f,%.0f,%q,%q\n",
       s.t, s.d, s.x, s.y, s.z, s.v, s.vz, s.ra, s.pa, s.st,
       W("FL", "sp"), W("FL", "ld"), W("FR", "sp"), W("FR", "ld"),
       W("RL", "sp"), W("RL", "ld"), W("RR", "sp"), W("RR", "ld"),
@@ -415,7 +417,8 @@ local function dumpImpl(baseName, quiet)
     string.format("配置      : %s   [%s]", vehInfo.cfgName, vehInfo.cfgKey),
     "悬挂类型  : 原厂零件(只能换零件/游戏内调校)",
     string.format("地图      : %s", levelName()),
-    string.format("采样      : %d 点 @ %d Hz  时长 %.1f s", n, HZ, n / HZ),
+    string.format("采样      : %d 点  时长 %.1f s", n,
+      (n > 1 and (samples[n].t - samples[1].t)) or 0),
     string.format("里程      : %.0f m   车速 平均 %.1f / 最大 %.1f m/s (%.0f / %.0f km/h)",
       dist, vsum / n, vmax, vsum / n * 3.6, vmax * 3.6),
     "",
@@ -502,6 +505,8 @@ end
 
 -- ── 每帧 ────────────────────────────────────────────────────────────────
 local probeTimer, slowTimer = 0, 0
+local realClock = 0         -- 累计实时时间（墙钟）：采样时间戳用它，暂停/不记录不累计
+local startClock = 0        -- 本次记录开始时的 realClock（时间轴归零）
 local lastPaused = false
 local simFrozenT = 0
 local pauseLogged = false
@@ -528,6 +533,9 @@ end
 local liveTimer = 0
 function M.onUpdate(dtReal, dtSim, dt)
   lastPaused = updatePaused(dtReal, dtSim)
+  if recording and not lastPaused then
+    realClock = realClock + (tonumber(dtReal) or 0)
+  end
   -- 每 0.3 秒把实时数据推给游戏内面板（比 engineLua 回调可靠）
   liveTimer = liveTimer + (dtReal or 0)
   if liveTimer > 0.3 then
@@ -594,9 +602,10 @@ function M.onUpdate(dtReal, dtSim, dt)
   if not recording then return end
   if lastPaused then return end
   -- 用仿真时间累加：游戏暂停时 dtSim = 0，自然停止采样；恢复后接着记
-  probeTimer = probeTimer + (tonumber(dtSim) or 0)
+  probeTimer = probeTimer + (tonumber(dtReal) or 0)
   if probeTimer < PROBE_TIMER then return end
-  probeTimer = 0
+  -- 只减掉一个周期，余量留到下次；低帧率时不会把采样频率拖慢（时间戳也不会被压缩）
+  probeTimer = math.min(probeTimer - PROBE_TIMER, PROBE_TIMER)
   local veh = playerVeh()
   if not veh then return end
   local ok, err = pcall(veh.queueLuaCommand, veh, PROBE)

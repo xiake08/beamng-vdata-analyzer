@@ -74,6 +74,8 @@ def _chips(d, dist, dur, points):
         + chip("route", "%s · %s" % (fmt_dist(dist), fmt_dur(dur)))
         + '<span class="chip live"><span class="dot"></span>已载入 %s 点</span>'
         % "{:,}".format(points)
+        + (chip("info", "起伏 %.0f cm · 地形平坦" % float(d.get("z_rel_cm") or 0.0))
+           if d.get("flat") and float(d.get("z_range_m") or 0.0) > 0 else "")
     )
 
 
@@ -171,6 +173,15 @@ def build(r, d):
         grade_at = None
     d["prof_grade_at"] = grade_at
 
+    # ── 平坦地形检测：起伏 < 0.8 m 时改用相对高程（cm）画 ─────
+    try:
+        zr = float(d.get("z_max") or 0.0) - float(d.get("z_min") or 0.0)
+    except (TypeError, ValueError):
+        zr = 0.0
+    d["z_range_m"] = round(zr, 3)
+    d["flat"] = zr < 0.8
+    d["z_rel_cm"] = round(zr * 100.0, 1)
+
     # ── 平均采样间距（说明坡度分辨率用）─────────────────────────────
     d["prof_spacing"] = (
         round(dist / (len(pts) - 1), 2) if len(pts) > 1 and dist > 0 else 0.0
@@ -183,29 +194,39 @@ def build(r, d):
 # ══════════════════════════════════════════════════════════════════════
 def _chart_card(d, pts):
     pk = d.get("prof_peaks") or {}
+    flat = d.get("flat")
+    sub = ("地形基本平坦（总起伏 %s cm），高程按相对 cm 展开 · 车速在右轴（虚线）"
+           % _f1(d.get("z_rel_cm"))) if flat else \
+          "高程 z 随里程起伏，车速叠在右轴（虚线）· 悬停看具体数值"
+    lname = "相对高程 (cm)" if flat else "高程 (m)"
     head = (
         '<div class="chart-head">'
         '<div><h2>路面剖面</h2>'
-        '<p>高程 z 随里程起伏，车速叠在右轴（虚线）· 悬停看具体数值</p></div>'
+        '<p>%s</p></div>'
         '<div class="chart-tools">%s'
         '<button class="chart-reset" type="button" title="双击图表也能复位">复位</button>'
         '</div></div>'
-    ) % legend([("高程 (m)", _BLUE, False), ("车速 (km/h)", _WARM, True)])
+    ) % (sub, legend([(lname, _BLUE, False), ("车速 (km/h)", _WARM, True)]))
 
     if pts:
         chart = '<div class="chart" id="chart-profile"></div>'
         hint = ('<span class="hint">%s滚轮缩放 · 拖拽平移 · 双击复位</span>' % IC["info"])
         if pk:
+            if d.get("flat"):
+                hi = "%s cm" % _f1((float(pk.get("z_max") or 0.0)
+                                    - float(pk.get("z_min") or 0.0)) * 100.0)
+                lo = "0 cm"
+            else:
+                hi = "%s m" % _f1(pk.get("z_max"))
+                lo = "%s m" % _f1(pk.get("z_min"))
             foot = (
                 '<div class="chart-foot">%s'
                 '<span class="chart-peaks">'
-                '<span>最高点 <b>%s m</b> @ %s m</span><i>·</i>'
-                '<span>最低点 <b>%s m</b> @ %s m</span><i>·</i>'
+                '<span>最高点 <b>%s</b> @ %s m</span><i>·</i>'
+                '<span>最低点 <b>%s</b> @ %s m</span><i>·</i>'
                 '<span>最高车速 <b>%s km/h</b> @ %s m</span>'
                 '</span></div>'
-            ) % (hint,
-                 _f1(pk.get("z_max")), _f0(pk.get("z_max_at")),
-                 _f1(pk.get("z_min")), _f0(pk.get("z_min_at")),
+            ) % (hint, hi, _f0(pk.get("z_max_at")), lo, _f0(pk.get("z_min_at")),
                  _f1(pk.get("v_max")), _f0(pk.get("v_max_at")))
         else:
             foot = '<div class="chart-foot">%s</div>' % hint
@@ -257,15 +278,33 @@ def _seg_card(d):
     return '<article class="card chart-card prof-seg">%s%s</article>' % (head, body)
 
 
+def _zrange_txt(d):
+    try:
+        zmin = float(d.get("z_min"))
+        zmax = float(d.get("z_max"))
+    except (TypeError, ValueError):
+        return "—"
+    if d.get("flat"):
+        return "0 – %s cm（相对）" % _f1((zmax - zmin) * 100.0)
+    return "%s – %s m" % (_f1(zmin), _f1(zmax))
+
+
+def _climb_txt(d):
+    c = d.get("climb")
+    if c is None:
+        return "—"
+    if d.get("flat"):
+        return "%s cm" % _f1(float(c) * 100.0)
+    return "%s m" % _f1(c)
+
+
 def _stat_card(d, dist, dur, points):
     zmin, zmax = d.get("z_min"), d.get("z_max")
     climb, grade = d.get("climb"), d.get("grade")
     vavg, vmax = d.get("v_avg_kmh"), d.get("v_max_kmh")
-    zrange = ("%s – %s m" % (_f1(zmin), _f1(zmax))
-              if (zmin is not None and zmax is not None) else "—")
     rows = [
-        ("高程范围", zrange),
-        ("累计爬升", "%s m" % _f1(climb) if climb is not None else "—"),
+        ("高程范围", _zrange_txt(d)),
+        ("累计爬升", _climb_txt(d)),
         ("最大坡度", _pct(grade)),
         ("均速", "%s km/h" % _f1(vavg) if vavg is not None else "—"),
         ("最高车速", "%s km/h" % _f1(vmax) if vmax is not None else "—"),
@@ -518,11 +557,13 @@ window.PAGE_INIT.profile = function (root, DATA) {
   var el = root.querySelector('#chart-profile');
   if (!el || !window.ChartKit) return;
   var pts = DATA.profile_pts || [];
+  var zmin = isFinite(DATA.z_min) ? DATA.z_min : 0;
+  var flat = !!DATA.flat;
   var zs = [], vs = [];
   for (var i = 0; i < pts.length; i++) {
     var p = pts[i];
     if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue;
-    zs.push([p[0], p[1]]);
+    zs.push([p[0], flat ? (p[1] - zmin) * 100 : p[1]]);
     if (isFinite(p[2])) vs.push([p[0], p[2]]);
   }
   if (!zs.length) return;
@@ -533,7 +574,7 @@ window.PAGE_INIT.profile = function (root, DATA) {
       {name: '车速', color: '#D9A24A', data: vs, axis: 'y2', width: 1.6, dash: true}
     ],
     x:  {label: '里程 (m)', fmt: function (v) { return v.toFixed(0) + ' m'; }},
-    y1: {label: '高程 (m)'},
+    y1: {label: flat ? '相对高程 (cm)' : '高程 (m)'},
     y2: {label: '车速 (km/h)'}
   });
   if (!chart) return;
