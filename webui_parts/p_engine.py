@@ -10,7 +10,7 @@ LABEL = "发动机"
 ICON = "gauge"
 TITLE = "发动机"
 BADGE = ""
-SUB = "这一页看什么：发动机的转速、增压、空燃比、温度、机油压力，以及自动查出来的问题。"
+SUB = "这一页看什么：转速、增压、空燃比、水温/油温、油温超温报警，以及自动查出来的发动机问题。"
 ORDER = 3.5
 
 
@@ -49,10 +49,13 @@ def _stats_html(d):
     from .common import IC
     eng = d.get("engine") or {}
     st = eng.get("stats") or {}
+    fields = eng.get("fields") or {}
     boost = st.get("boost") or {}
+    boost_psi = st.get("boost_psi") or {}
     afr = st.get("afr") or {}
     water = st.get("water") or {}
-    oilp = st.get("oilp") or {}
+    oil = st.get("oil") or {}
+    oa = st.get("oilalarm") or {}
     rpm = st.get("rpm") or {}
     cards = []
 
@@ -65,14 +68,36 @@ def _stats_html(d):
             % (tone, IC[icon], label, value, unit, foot))
 
     card("#5B8FB9", "gauge", "峰值增压", _fmt(boost.get("max"), "", 2), "bar",
-         "@ 全程最大值" if boost else "这份数据没有增压字段")
+         ("≈ %.0f psi · 本车最大 %.2f bar" % (boost_psi.get("max", 0),
+                                             (st.get("boostmax") or {}).get("bar", 0))) if boost
+         else "这辆车没有增压数据（自然吸气/柴油 NA 常见）")
     card("#D9A24A", "pulse", "空燃比（全程）",
-         (_fmt(afr.get("min"), "", 1) + "–" + _fmt(afr.get("max"), "", 1)) if afr else "—",
-         "AFR", "负载下 11–15 为正常范围" if afr else "没有 AFR / Lambda 字段")
+         (_fmt(afr.get("min"), "", 1) + "–" + _fmt(afr.get("max"), "", 1)) if afr else "无数据",
+         ("AFR" if afr else ""), "负载下 11–15 为正常范围" if afr else "这辆车没有 AFR / Lambda 数据（官方电控里没这项）")
     card("#4E9E7B", "clock", "最高水温", _fmt(water.get("max"), "", 0), "°C",
-         ("机油压力最低 %s bar" % _fmt(oilp.get("min"), "", 2)) if oilp else
-         ("最高转速 %.0f rpm" % (rpm.get("max") or 0)) if rpm else "没有温度字段")
+         ("油温最高 %s °C%s" % (_fmt(oil.get("max"), "", 0),
+                                " · 超温报警 %.0f%% 时间" % oa["pct"] if oa.get("pct") is not None else ""))
+         if oil else ("最高转速 %.0f rpm" % (rpm.get("max") or 0)) if rpm else "没有温度字段")
     return '<section class="stats">%s</section>' % "".join(cards)
+
+def _howto_card(d):
+    from .common import IC
+    items = [
+        ("温度", "水温 80–105°C、油温 90–120°C。长时间往上爬 = 散热/机油扛不住。"),
+        ("机油压力", "怠速一般 ≥1 bar，高转 3–5 bar。高转掉到 0.x 就要查机油量/油泵。"),
+        ("空燃比 AFR", "理论 14.7；全油门 11–13 算浓（保护发动机），>16 太稀容易爆震/过热。"),
+        ("增压", "看你这台车的目标值；突然掉压/超压 = 泄压阀、管路或调校有问题。"),
+        ("转速", "台阶 = 换挡；贴着红区不掉 = 可能限转/打滑；尖峰 = 断油或空转。"),
+        ("发动机损伤", "0 最好；涨到几个 % 就要查爆震/过热历史，损伤不可逆。"),
+    ]
+    rows = "".join('<div class="eng-how-row"><b>%s</b><span>%s</span></div>' % (k, v)
+                   for k, v in items)
+    return """
+      <article class="card eng-how-card">
+        <div class="panel-head"><div><h2>这一页怎么看</h2><p>先看温度/油压/空燃比，再看曲线形状</p></div></div>
+        %s
+        <div class="hint">%s<span>横轴统一用时间，原地轰油门也能看。</span></div>
+      </article>""" % (rows, IC["info"])
 
 
 def _problems_card(d):
@@ -112,7 +137,7 @@ def _values_card(d):
         ("空燃比", rng("afr", "", 1)),
         ("水温", rng("water", "°C", 0)),
         ("油温", rng("oil", "°C", 0)),
-        ("机油压力", rng("oilp", " bar", 2)),
+        ("机油超温报警", ("%.0f%% 时间" % st["oilalarm"]["pct"]) if st.get("oilalarm", {}).get("pct") is not None else "—"),
         ("发动机损伤", rng("damage", "%", 1)),
     ]
     kv = "".join('<div class="kv-row"><dt>%s</dt><dd>%s</dd></div>' % (k, v) for k, v in rows)
@@ -151,24 +176,29 @@ def render(d):
     lg_temp = legend([("水温", "#D06A5C", False), ("油温", "#D9A24A", False)])
     lg_fuel = legend([("空燃比", "#4E9E7B", False), ("增压 bar", "#5B8FB9", False)])
 
-    charts = _chart_card("chart-eng-rpm", "转速", "横轴是里程 · 看换挡和断油点",
+    charts = _chart_card("chart-eng-rpm", "转速", "横轴是时间（秒）· 台阶处是换挡，尖峰看有没有断油/空转",
                          lg_rpm)
     charts2 = ('<div class="eng-two">%s%s</div>'
-               % (_chart_card("chart-eng-temp", "温度", "水温 / 油温（°C）", lg_temp),
-                  _chart_card("chart-eng-fuel", "空燃比 / 增压", "AFR 与 bar（量级不同，看趋势）",
+               % (_chart_card("chart-eng-temp", "温度", "水温 80–105°C、油温 90–120°C 算正常；持续往上走就要查散热/机油", lg_temp),
+                  _chart_card("chart-eng-fuel", "空燃比 / 增压", "负载下 AFR 11–15 正常；增压看调校值和有没有掉压",
                               lg_fuel)))
     left = '<div class="eng-left">%s%s</div>' % (charts, charts2)
-    side = "%s%s" % (_problems_card(d), _values_card(d))
-    body = ('<section class="grid">%s<aside class="side">%s</aside></section>'
-            % (left, side))
+    side = "%s%s%s" % (_howto_card(d), _problems_card(d), _values_card(d))
     note = ('<div class="hint">%s<span>阈值：水温 ≥100°C 偏高 / ≥110°C 过热；油温 ≥115°C 偏高；'
-            '机油压力 &lt;0.8 bar 偏低；空燃比 &gt;16 偏稀 / &lt;9.5 偏浓。'
-            '数据来自游戏电控（不同车字段不同，缺的项显示 —）。</span></div>' % IC["info"])
+            '空燃比 &gt;16 偏稀 / &lt;9.5 偏浓；增压 &gt;2.5 bar 提醒。'
+            '数据来自游戏电控（不同车字段不同，缺的项会写明而不是画空白）。</span></div>' % IC["info"])
     return ('<section class="page" data-page="%s" data-title="%s">\n%s'
-            '<section class="page-body">%s%s</section>\n</section>' % (KEY, TITLE, head, body, note))
+            '<section class="page-body">%s'
+            '<section class="grid">%s<aside class="side">%s</aside></section>'
+            '%s</section>\n</section>'
+            % (KEY, TITLE, head, _stats_html(d), left, side, note))
 
 
 CSS = """
+[data-page="engine"] .eng-how-card{flex:0 0 auto}
+[data-page="engine"] .eng-how-row{display:flex;gap:8px;margin-top:7px;font-size:11.6px;line-height:1.5}
+[data-page="engine"] .eng-how-row b{flex:0 0 66px;color:var(--ink-2);font-size:11.8px}
+[data-page="engine"] .eng-how-row span{color:var(--muted)}
 [data-page="engine"] .eng-left{display:flex;flex-direction:column;gap:16px;min-height:0}
 [data-page="engine"] .eng-chart{min-height:220px}
 [data-page="engine"] .eng-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
@@ -198,15 +228,27 @@ window.PAGE_INIT.engine = function (root, DATA) {
   function mount(id, cfg) {
     var el = root.querySelector('#' + id);
     if (!el) return;
-    if (!cfg.series || !cfg.series.length) {
-      el.innerHTML = '<div class="hint" style="justify-content:center">这份数据没有对应字段</div>';
+    var missing = (cfg.series || []).filter(function (s) { return !s.data || !s.data.length; })
+      .map(function (s) { return s.name; });
+    var usable = (cfg.series || []).filter(function (s) { return s.data && s.data.length; });
+    if (!usable.length) {
+      var names = (cfg.series || []).map(function (s) { return s.name; }).join(' / ');
+      el.innerHTML = '<div class="hint" style="justify-content:center;text-align:center">'
+        + '这辆车没有 ' + (names || '这些') + ' 数据（BeamNG 电控里没这项，不是程序坏了）</div>';
       return;
     }
     ChartKit.mount(el, cfg);
+    if (missing.length) {
+      var tip = document.createElement('div');
+      tip.className = 'hint';
+      tip.style.cssText = 'justify-content:center;font-size:11.2px;margin-top:4px';
+      tip.textContent = '⚠ 这辆车没有 ' + missing.join(' / ') + ' 数据（电控里没这项）';
+      el.parentNode.insertBefore(tip, el.nextSibling);
+    }
   }
   mount('chart-eng-rpm', {
     series: [{name: '转速', color: '#5B8FB9', width: 2, data: ser.rpm || []}],
-    x: {label: '里程 (m)', fmt: function (v) { return v.toFixed(0) + ' m'; }},
+    x: {label: '时间 (秒)', fmt: function (v) { return v.toFixed(1) + ' s'; }},
     y1: {label: '转速 (rpm)'}
   });
   mount('chart-eng-temp', {
@@ -214,7 +256,7 @@ window.PAGE_INIT.engine = function (root, DATA) {
       {name: '水温', color: '#D06A5C', width: 2, data: ser.water || []},
       {name: '油温', color: '#D9A24A', width: 2, data: ser.oil || []}
     ],
-    x: {label: '里程 (m)', fmt: function (v) { return v.toFixed(0) + ' m'; }},
+    x: {label: '时间 (秒)', fmt: function (v) { return v.toFixed(1) + ' s'; }},
     y1: {label: '温度 (°C)'}
   });
   mount('chart-eng-fuel', {
@@ -222,7 +264,7 @@ window.PAGE_INIT.engine = function (root, DATA) {
       {name: '空燃比', color: '#4E9E7B', width: 2, data: ser.afr || []},
       {name: '增压', color: '#5B8FB9', width: 2, data: ser.boost || []}
     ],
-    x: {label: '里程 (m)', fmt: function (v) { return v.toFixed(0) + ' m'; }},
+    x: {label: '时间 (秒)', fmt: function (v) { return v.toFixed(1) + ' s'; }},
     y1: {label: 'AFR / bar'}
   });
 };

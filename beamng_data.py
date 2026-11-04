@@ -675,6 +675,7 @@ _ENG_SYN = {
               "water_temperature", "coolant_temperature"),
     "oil": ("oil_temp", "oiltemp", "oil_temperature"),
     "oilp": ("oil_pressure", "oilpressure", "oil_press", "oilpressurebar"),
+    "oilalarm": ("oil",),
     "load": ("engine_load", "engineload", "load", "engine_load_value"),
     "throttle": ("throttle", "throttle_input", "throttleposition"),
     "damage": ("engine_damage", "engine_damage_ratio", "enginehealth",
@@ -737,12 +738,14 @@ def analyze_engine(rows, g):
     res["has"] = True
 
     def series_of(field, step=1):
+        # 横轴用时间：发动机数据按时间看更直观，原地轰油门/短距离也能画开
         out = []
         for i in range(0, len(rows), step):
             v = _eng_pick(parsed[i], rows[i], field)
             if v is None:
                 continue
-            out.append([round(float(g(rows[i], "d")), 1), round(float(v), 3)])
+            tt = g(rows[i], "t")
+            out.append([round(float(tt), 2), round(float(v), 3)])
         return out
 
     raw = {k: series_of(k) for k in _ENG_SYN}
@@ -793,6 +796,25 @@ def analyze_engine(rows, g):
         if st:
             res["stats"][f] = st
 
+    # boost 原始值（PSI）也留一份给页面同时显示 psi/bar
+    raw_boost = [p[1] for p in raw.get("boost", [])]
+    if raw_boost:
+        # raw["boost"] 此时已经被换算成 bar，反推回 psi
+        res["stats"]["boost_psi"] = {"max": round(max(raw_boost) * 14.5038, 2),
+                                     "avg": round(sum(raw_boost) / len(raw_boost) * 14.5038, 2)}
+    bmax = None
+    for i in range(len(rows)):
+        e = parsed[i]
+        for k in ("boostmax", "turbo_boost_max", "turboboostmax"):
+            if k in e:
+                bmax = max(bmax or 0, e[k])
+    if bmax:
+        res["stats"]["boostmax"] = {"max": round(bmax, 2), "bar": round(bmax / 14.5038, 2)}
+    oa = res["stats"].get("oilalarm")
+    if oa:
+        res["stats"]["oilalarm"]["pct"] = round(sum(1 for v in col("oilalarm") if v > 0.5) / len(col("oilalarm")) * 100, 1)
+    res["fields"] = {f: (f in res["stats"]) for f in _ENG_SYN}
+
     # ── 诊断规则（阈值保守，只报明显异常）────────────────
     probs = res["problems"]
 
@@ -806,7 +828,7 @@ def analyze_engine(rows, g):
                 "冷却系统压不住：检查水箱风扇/节温器/冷却液量，或降低增压/负载。")
         elif w["max"] >= 100:
             add("warn", "水温偏高 %.0f°C" % w["max"],
-                "接近开锅，长时间高负载前建议加风扇/加大水箱。")
+                "接近开锅；原地轰油门没有迎面风也会升温，跑起来能降下来就问题不大。")
     o = res["stats"].get("oil")
     if o:
         if o["max"] >= 130:
