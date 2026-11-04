@@ -123,9 +123,11 @@ def _problems_card(d):
 
 
 def _eng_state(dmg):
-    """发动机状态一句话：正常 / 扭矩受限 / 已损坏停用 / 旧数据 —"""
+    """发动机状态一句话：正常 / 扭矩受限 / 已损坏停用 / 旧数据"""
     if not dmg.get("has"):
         return "—"
+    if not dmg.get("new_format"):
+        return "旧数据（无损伤检测）"
     st = dmg.get("state") or {}
     if st.get("broken") or st.get("disabled") or dmg.get("flags", {}).get("engineDisabled"):
         return "已损坏停用"
@@ -159,7 +161,7 @@ def _values_card(d):
     pct = (st.get("oilalarm") or {}).get("pct")
     if pct:
         rows.append(("机油超温报警", "%.0f%% 时间" % pct))
-    if dmg.get("has"):
+    if dmg.get("has") and dmg.get("new_format"):
         rows.append(("发动机状态", _eng_state(dmg)))
         bad = dmg.get("bad") or []
         if bad:

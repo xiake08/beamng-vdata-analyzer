@@ -839,41 +839,45 @@ def analyze_engine(rows, g):
         res["stats"]["oilalarm"]["pct"] = round(sum(1 for v in col("oilalarm") if v > 0.5) / len(col("oilalarm")) * 100, 1)
     res["fields"] = {f: (f in res["stats"]) for f in _ENG_SYN}
 
-    # ── 发动机损伤（engdmg：damageTracker 标志 + 设备状态 + 部件 jbeam 损伤）──
+    # ── 发动机损伤（engdmg）：整段抓包取最坏状态 ──
     dmg = {"has": False, "integrity": None, "flags": {}, "bad": [],
-           "state": {}, "parts": {}}
+           "state": {}, "parts": {}, "new_format": False}
     for r in rows:
         txt = r.get("eng")
         if not isinstance(txt, str) or "engdmg=" not in txt:
             continue
+        dmg["has"] = True
         for part in txt.split(";"):
             if not part.startswith("engdmg="):
                 continue
-            dmg["has"] = True
             for item in part[len("engdmg="):].split("|"):
                 k, _, v = item.partition("=")
+                if not k:
+                    continue
                 if k == "integrity":
                     try:
-                        dmg["integrity"] = float(v)
+                        iv = float(v)
+                        dmg["integrity"] = iv if dmg["integrity"] is None else min(dmg["integrity"], iv)
                     except ValueError:
                         pass
                 elif k.startswith("part_"):
                     try:
-                        dmg["parts"][k[5:]] = max(dmg["parts"].get(k[5:], 0.0), float(v))
+                        pv = float(v)
+                        dmg["parts"][k[5:]] = max(dmg["parts"].get(k[5:], 0.0), pv)
                     except ValueError:
                         pass
                 elif k in ("disabled", "broken"):
-                    dmg["state"][k] = (v == "1")
+                    dmg["new_format"] = True
+                    dmg["state"][k] = dmg["state"].get(k, False) or (v == "1")
                 elif k == "torque_state":
+                    dmg["new_format"] = True
                     try:
-                        dmg["state"][k] = float(v)
+                        tv = float(v)
+                        dmg["state"][k] = tv if k not in dmg["state"] else min(dmg["state"][k], tv)
                     except ValueError:
                         pass
-                elif k:
-                    dmg["flags"][k] = (v == "1")
-            break
-        if dmg["has"]:
-            break
+                else:
+                    dmg["flags"][k] = dmg["flags"].get(k, False) or (v == "1")
 
     seen = []
     for k, v in dmg["flags"].items():
@@ -883,7 +887,8 @@ def analyze_engine(rows, g):
                 seen.append(name)
     for name, score in sorted(dmg["parts"].items(), key=lambda kv: -kv[1]):
         if score >= 0.2:
-            label = "部件损伤：" + name + " %.0f%%" % (score * 100)
+            short = name.rstrip("/").split("/")[-1]
+            label = "部件损伤：%s %.0f%%" % (short, score * 100)
             if label not in seen:
                 seen.append(label)
     dmg["bad"] = seen
@@ -939,7 +944,10 @@ def analyze_engine(rows, g):
     if rpm and rpm["max"] >= 7000:
         add("info", "最高转速 %.0f rpm" % rpm["max"], "注意断油点和高转保护。")
     dmg = res.get("damage") or {}
-    if dmg.get("has"):
+    if dmg.get("has") and not dmg.get("new_format"):
+        add("info", "这份抓包是旧版扩展录的，没有发动机损伤数据",
+            "旧版只记了电控里的热损伤标志，不包含设备状态/部件损伤；重启游戏后新录的抓包才有。")
+    if dmg.get("has") and dmg.get("new_format"):
         st = dmg.get("state") or {}
         if st.get("broken") or st.get("disabled"):
             add("bad", "发动机已损坏停用",
