@@ -120,6 +120,21 @@ def _problems_card(d):
       </article>""" % (len(probs), "".join(rows))
 
 
+def _eng_state(dmg):
+    """发动机状态一句话：正常 / 扭矩受限 / 已损坏停用 / 旧数据 —"""
+    if not dmg.get("has"):
+        return "—"
+    st = dmg.get("state") or {}
+    if st.get("broken") or st.get("disabled") or dmg.get("flags", {}).get("engineDisabled"):
+        return "已损坏停用"
+    ts = st.get("torque_state")
+    if isinstance(ts, (int, float)) and ts < 0.99:
+        return "扭矩受限 %.0f%%" % (ts * 100)
+    if dmg.get("bad"):
+        return "有损伤"
+    return "正常"
+
+
 def _values_card(d):
     eng = d.get("engine") or {}
     st = eng.get("stats") or {}
@@ -139,7 +154,7 @@ def _values_card(d):
         ("水温", rng("water", "°C", 0)),
         ("油温", rng("oil", "°C", 0)),
         ("机油超温报警", ("%.0f%% 时间" % st["oilalarm"]["pct"]) if st.get("oilalarm", {}).get("pct") is not None else "—"),
-        ("发动机完整度", ("%.0f%%" % (dmg["integrity"] * 100)) if dmg.get("integrity") is not None else "—"),
+        ("发动机状态", _eng_state(dmg)),
         ("发动机损伤部位", "、".join(dmg.get("bad") or []) or ("无" if dmg.get("has") else "—")),
     ]
     kv = "".join('<div class="kv-row"><dt>%s</dt><dd>%s</dd></div>' % (k, v) for k, v in rows)

@@ -839,8 +839,9 @@ def analyze_engine(rows, g):
         res["stats"]["oilalarm"]["pct"] = round(sum(1 for v in col("oilalarm") if v > 0.5) / len(col("oilalarm")) * 100, 1)
     res["fields"] = {f: (f in res["stats"]) for f in _ENG_SYN}
 
-    # ── 发动机损伤（engdmg：官方 damageTracker 标志 + 部件完整度）──
-    dmg = {"has": False, "integrity": None, "flags": {}, "bad": []}
+    # ── 发动机损伤（engdmg：damageTracker 标志 + 设备状态 + 部件 jbeam 损伤）──
+    dmg = {"has": False, "integrity": None, "flags": {}, "bad": [],
+           "state": {}, "parts": {}}
     for r in rows:
         txt = r.get("eng")
         if not isinstance(txt, str) or "engdmg=" not in txt:
@@ -856,17 +857,35 @@ def analyze_engine(rows, g):
                         dmg["integrity"] = float(v)
                     except ValueError:
                         pass
+                elif k.startswith("part_"):
+                    try:
+                        dmg["parts"][k[5:]] = max(dmg["parts"].get(k[5:], 0.0), float(v))
+                    except ValueError:
+                        pass
+                elif k in ("disabled", "broken"):
+                    dmg["state"][k] = (v == "1")
+                elif k == "torque_state":
+                    try:
+                        dmg["state"][k] = float(v)
+                    except ValueError:
+                        pass
                 elif k:
                     dmg["flags"][k] = (v == "1")
             break
         if dmg["has"]:
             break
+
     seen = []
     for k, v in dmg["flags"].items():
         if v:
             name = _ENG_DMG_NAME.get(k, k)
             if name not in seen:
                 seen.append(name)
+    for name, score in sorted(dmg["parts"].items(), key=lambda kv: -kv[1]):
+        if score >= 0.2:
+            label = "部件损伤：" + name + " %.0f%%" % (score * 100)
+            if label not in seen:
+                seen.append(label)
     dmg["bad"] = seen
     dmg["names"] = _ENG_DMG_NAME
     res["damage"] = dmg
@@ -921,12 +940,28 @@ def analyze_engine(rows, g):
         add("info", "最高转速 %.0f rpm" % rpm["max"], "注意断油点和高转保护。")
     dmg = res.get("damage") or {}
     if dmg.get("has"):
+        st = dmg.get("state") or {}
+        if st.get("broken") or st.get("disabled"):
+            add("bad", "发动机已损坏停用",
+                "游戏判定发动机已经不能工作（爆缸/抱死/进水等）：先修/换发动机再调校。")
+        if isinstance(st.get("torque_state"), (int, float)) and st["torque_state"] < 0.99:
+            add("warn", "发动机扭矩受限（%.0f%%）" % (st["torque_state"] * 100),
+                "发动机被降扭保护：检查水温/油温/爆震，修好前别继续加负荷。")
+        parts = dmg.get("parts") or {}
+        severe = [k for k, v in parts.items() if v >= 0.6]
+        mid = [k for k, v in parts.items() if 0.2 <= v < 0.6]
+        if severe:
+            add("bad", "发动机部件严重受损：" + " / ".join(severe[:5]),
+                "这些部件的 jbeam 已经撞变形/断裂（撞车或爆缸造成），需要换件。")
+        elif mid:
+            add("warn", "发动机部件受损：" + " / ".join(mid[:5]),
+                "部件有变形但还没完全坏，注意别继续硬开。")
         if dmg.get("integrity") is not None and dmg["integrity"] < 0.85:
             add("bad", "发动机完整度低（%.0f%%）" % (dmg["integrity"] * 100),
                 "游戏判定发动机已经受损：先修再调校。")
         if dmg.get("bad"):
             add("bad", "发动机损伤：" + " / ".join(dmg["bad"][:6]),
-                "damageTracker 报告这些部位坏了，按上面列表检查/更换。")
+                "damageTracker / 部件损伤报告了这些部位，按上面列表检查/更换。")
     if not probs:
         add("ok", "没发现明显发动机问题",
             "水温/油温/油压/空燃比都在合理范围内；继续观察高负载段即可。")

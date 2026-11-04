@@ -178,6 +178,34 @@ end
 if integrity then
   dmg[#dmg + 1] = 'integrity=' .. string.format('%.3f', integrity)
 end
+-- 发动机设备本身的状态：爆缸/抱死时这些会变（damageTracker 的标记不一定上报）
+if engines and engines[1] then
+  local dev = engines[1]
+  dmg[#dmg + 1] = 'disabled=' .. ((dev.isDisabled and '1') or '0')
+  dmg[#dmg + 1] = 'broken=' .. ((dev.isBroken and '1') or '0')
+  if type(dev.outputTorqueState) == 'number' then
+    dmg[#dmg + 1] = 'torque_state=' .. string.format('%.3f', dev.outputTorqueState)
+  end
+end
+-- 部件损伤（jbeam 变形/断裂）：发动机、涡轮、水箱、排气等部件的损伤分数
+if beamstate and beamstate.getPartDamageData then
+  local okB, pd = pcall(beamstate.getPartDamageData)
+  if okB and type(pd) == 'table' then
+    local keep = { 'engine', 'motor', 'turbo', 'radiator', 'coolant', 'exhaust',
+                   'oil', 'intake', 'manifold', 'cylinder', 'piston', 'head' }
+    for name, d in pairs(pd) do
+      local ln = tostring(name):lower()
+      local hit = false
+      for _, kw in ipairs(keep) do
+        if ln:find(kw, 1, true) then hit = true break end
+      end
+      if hit then
+        local safe = tostring(name):gsub('[;|=]', '_')
+        dmg[#dmg + 1] = 'part_' .. safe .. '=' .. string.format('%.3f', (d and d.damage) or 0)
+      end
+    end
+  end
+end
 if #dmg > 0 then
   eng[#eng + 1] = 'engdmg=' .. table.concat(dmg, '|')
 end
