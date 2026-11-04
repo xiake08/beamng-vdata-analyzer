@@ -102,6 +102,36 @@ def _howto_card(d):
       </article>""" % (rows, IC["info"])
 
 
+def _causes_card(d):
+    from .common import IC
+    dmg = (d.get("engine") or {}).get("damage") or {}
+    causes = dmg.get("causes") or []
+    if not causes:
+        return ""
+    ev = dmg.get("evidence") or {}
+    rows = "".join('<div class="eng-prob eng-bad"><span class="eng-dot"></span>'
+                   '<div><b>%s</b><p>%s</p></div></div>' % (c.get("title", ""), c.get("detail", ""))
+                   for c in causes)
+    head = ""
+    if ev.get("t") is not None:
+        bits = []
+        if ev.get("rpm") is not None:
+            bits.append("转速 %.0f rpm" % ev["rpm"])
+        if ev.get("boost") is not None:
+            bits.append("增压 %.1f psi" % ev["boost"])
+        if ev.get("water") is not None:
+            bits.append("水温 %.0f°C" % ev["water"])
+        if ev.get("oil") is not None:
+            bits.append("油温 %.0f°C" % ev["oil"])
+        head = ('<div class="hint">%s<span>损坏发生在第 %.1f 秒；损坏前 6 秒峰值：%s</span></div>'
+                % (IC["info"], ev["t"], " · ".join(bits)))
+    return """
+      <article class="card eng-prob-card">
+        <div class="panel-head"><div><h2>损坏原因</h2><p>按损坏前数据 + damageTracker 标志推断</p></div></div>
+        %s%s
+      </article>""" % (head, rows)
+
+
 def _problems_card(d):
     from .common import IC
     probs = (d.get("engine") or {}).get("problems") or []
@@ -212,7 +242,7 @@ def render(d):
                   _chart_card("chart-eng-fuel", "空燃比 / 增压", "负载下 AFR 11–15 正常；增压看调校值和有没有掉压",
                               lg_fuel)))
     left = '<div class="eng-left">%s%s</div>' % (charts, charts2)
-    side = "%s%s%s" % (_howto_card(d), _problems_card(d), _values_card(d))
+    side = "%s%s%s%s" % (_howto_card(d), _causes_card(d), _problems_card(d), _values_card(d))
     note = ('<div class="hint">%s<span>阈值：水温 ≥100°C 偏高 / ≥110°C 过热；油温 ≥115°C 偏高；'
             '空燃比 &gt;16 偏稀 / &lt;9.5 偏浓；增压 &gt;2.5 bar 提醒。'
             '数据来自游戏电控（不同车字段不同，缺的项会写明而不是画空白）。</span></div>' % IC["info"])

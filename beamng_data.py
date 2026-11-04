@@ -745,6 +745,37 @@ def _eng_pick(eng, row, field):
     return None
 
 
+def _eng_floats(txt):
+    """把 eng 字段里所有数值 k=v 解出来（engdmg 这类字符串值忽略）。"""
+    out = {}
+    if not isinstance(txt, str):
+        return out
+    for part in txt.split(";"):
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        try:
+            out[k.strip().lower()] = float(v)
+        except ValueError:
+            continue
+    return out
+
+
+def _eng_has_damage(txt):
+    if not isinstance(txt, str):
+        return False
+    for part in txt.split(";"):
+        if not part.startswith("engdmg="):
+            continue
+        for item in part[len("engdmg="):].split("|"):
+            k, _, v = item.partition("=")
+            if v == "1" and k in ("disabled", "broken", "pc_isBroken",
+                                  "engineLockedUp", "engineDisabled",
+                                  "engineHydrolocked", "blockMelted"):
+                return True
+    return False
+
+
 def analyze_engine(rows, g):
     """从 rows 的 eng 列提取发动机时序 + 统计 + 问题诊断。"""
     res = {"has": False, "series": {}, "stats": {}, "problems": [], "labels": _ENG_LABEL}
@@ -893,6 +924,85 @@ def analyze_engine(rows, g):
                 seen.append(label)
     dmg["bad"] = seen
     dmg["names"] = _ENG_DMG_NAME
+
+    # ── 损坏原因分析 ───────────────────────────────────────
+    onset = None
+    for i in range(len(rows)):
+        if _eng_has_damage(rows[i].get("eng")):
+            onset = i
+            break
+    engs = [_eng_floats(r.get("eng")) for r in rows]
+    maxrpm = max([e.get("maxrpm") or 0 for e in engs] or [0]) or None
+    boostmax = max([e.get("boostmax") or e.get("turboboostmax") or 0 for e in engs] or [0]) or None
+    causes = []
+    evidence = {}
+    if onset is not None:
+        w0 = max(0, onset - 60)          # 损坏前 6 秒
+        win = list(range(w0, onset + 1))
+        rpms = [g(rows[i], "rpm") for i in win]
+        thr = [g(rows[i], "thr") for i in win]
+        waters = [engs[i].get("watertemp") for i in win if engs[i].get("watertemp") is not None]
+        oils = [engs[i].get("oiltemp") for i in win if engs[i].get("oiltemp") is not None]
+        boosts = [engs[i].get("boost") or engs[i].get("turboboost")
+                  for i in win if (engs[i].get("boost") or engs[i].get("turboboost")) is not None]
+        evidence = {
+            "t": round(g(rows[onset], "t"), 1),
+            "rpm": round(max(rpms), 0) if rpms else None,
+            "thr": round(max(thr) * 100, 0) if thr else None,
+            "water": round(max(waters), 1) if waters else None,
+            "oil": round(max(oils), 1) if oils else None,
+            "boost": round(max(boosts), 1) if boosts else None,
+        }
+        dmg["onset_t"] = evidence["t"]
+        # 1) 超转
+        if maxrpm and evidence.get("rpm") and evidence["rpm"] > maxrpm * 1.005:
+            causes.append({
+                "title": "超转：%.0f rpm（本车限制 %.0f rpm）" % (evidence["rpm"], maxrpm),
+                "detail": "损坏前转速超过红线 %.0f 转，容易断气门/连杆。断油保护被改过或手动降档就会这样。"
+                          % (evidence["rpm"] - maxrpm)})
+        # 2) 增压超压
+        if (boostmax and evidence.get("boost")
+                and evidence["boost"] > boostmax * 0.98
+                and evidence["boost"] <= boostmax * 1.02):
+            causes.append({
+                "title": "增压打满：%.1f psi（本车最大 %.1f psi）" % (evidence["boost"], boostmax),
+                "detail": "增压基本贴着上限，热负荷和缸压都很高；确认调校目标值、泄压阀和进气温度。"})
+        if boostmax and evidence.get("boost") and evidence["boost"] > boostmax * 1.02:
+            causes.append({
+                "title": "增压超压：%.1f psi（本车最大 %.1f psi）" % (evidence["boost"], boostmax),
+                "detail": "涡轮压力超过设定值，缸压/缸温飙升，容易冲缸垫、爆活塞。检查泄压阀/旁通阀和调校。"})
+        # 3) 过热
+        if evidence.get("water") and evidence["water"] >= 110:
+            causes.append({
+                "title": "水温过热 %.0f°C" % evidence["water"],
+                "detail": "冷却系统压不住导致缸体/缸垫热损伤：查风扇、节温器、水泵、冷却液。"})
+        if evidence.get("oil") and evidence["oil"] >= 130:
+            causes.append({
+                "title": "机油过热 %.0f°C" % evidence["oil"],
+                "detail": "机油高温失效导致拉瓦/拉缸：加机油冷却器或降负载。"})
+        # 4) damageTracker 直接给出的原因
+        flag_causes = {
+            "coolantOverheating": ("冷却液过热", "水温过高触发过热损伤。"),
+            "starvedOfOil": ("缺机油", "机油压力/油量不足导致干磨。"),
+            "oilOverheating": ("机油过热", "机油温度过高导致润滑失效。"),
+            "mildOverrevDamage": ("超转损伤", "转速超过红线被记录为损伤。"),
+            "mildOverTorqueDamage": ("超扭损伤", "扭矩过大导致机械损伤。"),
+            "turbochargerHot": ("涡轮过热", "涡轮温度过高，检查增压值和散热。"),
+            "engineIsHydrolocking": ("进气进水（淹缸）", "吸进水导致连杆/缸体损坏。"),
+            "engineHydrolocked": ("发动机进水锁死", "进水后直接锁死。"),
+        }
+        for k, (title, detail) in flag_causes.items():
+            if dmg["flags"].get(k):
+                causes.append({"title": title + "（damageTracker）", "detail": detail})
+        # 5) 没有明确原因时：按部件损伤推测撞坏
+        if not causes and dmg.get("parts"):
+            worst = max(dmg["parts"].items(), key=lambda kv: kv[1])
+            causes.append({
+                "title": "机械/碰撞损伤（%s %.0f%%）" % (worst[0].rstrip("/").split("/")[-1], worst[1] * 100),
+                "detail": "没有过热/超转记录，发动机损坏更像撞车或部件被打坏。看损坏部位换件。"})
+    dmg["causes"] = causes
+    dmg["evidence"] = evidence
+    dmg["limits"] = {"maxrpm": maxrpm, "boostmax": boostmax}
     res["damage"] = dmg
 
 
@@ -970,6 +1080,8 @@ def analyze_engine(rows, g):
         if dmg.get("bad"):
             add("bad", "发动机损伤：" + " / ".join(dmg["bad"][:6]),
                 "damageTracker / 部件损伤报告了这些部位，按上面列表检查/更换。")
+        for c in dmg.get("causes") or []:
+            add("bad", "损坏原因：" + c["title"], c["detail"])
     if not probs:
         add("ok", "没发现明显发动机问题",
             "水温/油温/油压/空燃比都在合理范围内；继续观察高负载段即可。")
