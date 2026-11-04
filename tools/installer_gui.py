@@ -24,7 +24,7 @@ import zipfile
 from tkinter import filedialog, messagebox, ttk
 
 APP_NAME = "车辆数据分析器"
-VERSION = "2.2"
+VERSION = "2.2.1"
 UNINSTALLER = "卸载.exe"
 DEFAULT_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                            APP_NAME)
