@@ -684,6 +684,30 @@ _ENG_SYN = {
     "intake": ("intake_temp", "intaketemp", "manifold_temp", "manifoldtemp"),
     "fuel": ("fuel", "fuel_level", "fuellevel", "fuel_ratio"),
 }
+_ENG_DMG_NAME = {
+    "pistonRingsDamaged": "活塞环损坏",
+    "rodBearingsDamaged": "连杆轴承损坏",
+    "headGasketDamaged": "缸垫损坏",
+    "turbochargerHot": "涡轮过热",
+    "engineIsHydrolocking": "进气进水（正在淹缸）",
+    "engineHydrolocked": "发动机进水锁死",
+    "engineReducedTorque": "发动机扭矩受限",
+    "mildOverrevDamage": "轻微超转损伤",
+    "mildOverTorqueDamage": "轻微超扭损伤",
+    "engineDisabled": "发动机损坏停用",
+    "blockMelted": "缸体熔毁",
+    "engineLockedUp": "发动机抱死",
+    "coolantOverheating": "冷却液过热报警",
+    "starvedOfOil": "缺机油报警",
+    "oilOverheating": "机油过热报警",
+    "headGasketBlown": "缸垫冲了",
+    "pc_headGasketBlown": "缸垫冲了",
+    "pc_pistonRingsDamaged": "活塞环损坏",
+    "pc_connectingRodBearingsDamaged": "连杆轴承损坏",
+    "pc_engineBlockMelted": "缸体熔毁",
+    "pc_cylinderWallsMelted": "缸壁熔毁",
+    "pc_isBroken": "发动机已损坏",
+}
 _ENG_LABEL = {
     "rpm": "转速 rpm", "torque": "发动机扭矩 Nm", "boost": "增压 bar",
     "afr": "空燃比 AFR", "lambda": "Lambda", "water": "水温 °C",
@@ -815,6 +839,39 @@ def analyze_engine(rows, g):
         res["stats"]["oilalarm"]["pct"] = round(sum(1 for v in col("oilalarm") if v > 0.5) / len(col("oilalarm")) * 100, 1)
     res["fields"] = {f: (f in res["stats"]) for f in _ENG_SYN}
 
+    # ── 发动机损伤（engdmg：官方 damageTracker 标志 + 部件完整度）──
+    dmg = {"has": False, "integrity": None, "flags": {}, "bad": []}
+    for r in rows:
+        txt = r.get("eng")
+        if not isinstance(txt, str) or "engdmg=" not in txt:
+            continue
+        for part in txt.split(";"):
+            if not part.startswith("engdmg="):
+                continue
+            dmg["has"] = True
+            for item in part[len("engdmg="):].split("|"):
+                k, _, v = item.partition("=")
+                if k == "integrity":
+                    try:
+                        dmg["integrity"] = float(v)
+                    except ValueError:
+                        pass
+                elif k:
+                    dmg["flags"][k] = (v == "1")
+            break
+        if dmg["has"]:
+            break
+    seen = []
+    for k, v in dmg["flags"].items():
+        if v:
+            name = _ENG_DMG_NAME.get(k, k)
+            if name not in seen:
+                seen.append(name)
+    dmg["bad"] = seen
+    dmg["names"] = _ENG_DMG_NAME
+    res["damage"] = dmg
+
+
     # ── 诊断规则（阈值保守，只报明显异常）────────────────
     probs = res["problems"]
 
@@ -862,6 +919,14 @@ def analyze_engine(rows, g):
     rpm = res["stats"].get("rpm")
     if rpm and rpm["max"] >= 7000:
         add("info", "最高转速 %.0f rpm" % rpm["max"], "注意断油点和高转保护。")
+    dmg = res.get("damage") or {}
+    if dmg.get("has"):
+        if dmg.get("integrity") is not None and dmg["integrity"] < 0.85:
+            add("bad", "发动机完整度低（%.0f%%）" % (dmg["integrity"] * 100),
+                "游戏判定发动机已经受损：先修再调校。")
+        if dmg.get("bad"):
+            add("bad", "发动机损伤：" + " / ".join(dmg["bad"][:6]),
+                "damageTracker 报告这些部位坏了，按上面列表检查/更换。")
     if not probs:
         add("ok", "没发现明显发动机问题",
             "水温/油温/油压/空燃比都在合理范围内；继续观察高负载段即可。")

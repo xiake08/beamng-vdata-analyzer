@@ -142,6 +142,45 @@ for k, v in pairs(ev) do
     if hit then eng[#eng + 1] = lk .. '=' .. string.format('%.4g', v) end
   end
 end
+-- 发动机损伤：damageTracker（游戏官方模块，vehicle Lua 全局）里发动机组的标志，
+-- 加上发动机部件完整度（combustionEngine:getPartCondition()）
+local dmg = {}
+if damageTracker and damageTracker.getDamage then
+  local DK = {
+    'pistonRingsDamaged', 'rodBearingsDamaged', 'headGasketDamaged',
+    'turbochargerHot', 'engineIsHydrolocking', 'engineHydrolocked',
+    'engineReducedTorque', 'mildOverrevDamage', 'mildOverTorqueDamage',
+    'engineDisabled', 'blockMelted', 'engineLockedUp',
+    'coolantOverheating', 'starvedOfOil', 'oilOverheating',
+  }
+  for _, k in ipairs(DK) do
+    local okv, v = pcall(damageTracker.getDamage, 'engine', k)
+    dmg[#dmg + 1] = k .. '=' .. (((okv and v) and '1') or '0')
+  end
+end
+local integrity = nil
+local engines = powertrain and powertrain.getDevicesByCategory
+  and powertrain.getDevicesByCategory('engine')
+if engines and engines[1] and engines[1].getPartCondition then
+  local iv, st = nil, nil
+  local okI = pcall(function() iv, st = engines[1]:getPartCondition() end)
+  if okI and type(iv) == 'number' then
+    integrity = iv
+    if type(st) == 'table' then
+      for _, k in ipairs({ 'headGasketBlown', 'pistonRingsDamaged',
+        'connectingRodBearingsDamaged', 'engineBlockMelted',
+        'cylinderWallsMelted', 'isBroken' }) do
+        dmg[#dmg + 1] = 'pc_' .. k .. '=' .. ((st[k] and '1') or '0')
+      end
+    end
+  end
+end
+if integrity then
+  dmg[#dmg + 1] = 'integrity=' .. string.format('%.3f', integrity)
+end
+if #dmg > 0 then
+  eng[#eng + 1] = 'engdmg=' .. table.concat(dmg, '|')
+end
 table.sort(eng)
 -- 刹车输入在不同车/版本里字段名不一样，全试一遍
 local brkPa = ev.braking

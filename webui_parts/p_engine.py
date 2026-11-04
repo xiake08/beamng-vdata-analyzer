@@ -123,6 +123,7 @@ def _problems_card(d):
 def _values_card(d):
     eng = d.get("engine") or {}
     st = eng.get("stats") or {}
+    dmg = eng.get("damage") or {}
 
     def rng(k, unit="", digits=1):
         s = st.get(k)
@@ -138,7 +139,8 @@ def _values_card(d):
         ("水温", rng("water", "°C", 0)),
         ("油温", rng("oil", "°C", 0)),
         ("机油超温报警", ("%.0f%% 时间" % st["oilalarm"]["pct"]) if st.get("oilalarm", {}).get("pct") is not None else "—"),
-        ("发动机损伤", rng("damage", "%", 1)),
+        ("发动机完整度", ("%.0f%%" % (dmg["integrity"] * 100)) if dmg.get("integrity") is not None else "—"),
+        ("发动机损伤部位", "、".join(dmg.get("bad") or []) or ("无" if dmg.get("has") else "—")),
     ]
     kv = "".join('<div class="kv-row"><dt>%s</dt><dd>%s</dd></div>' % (k, v) for k, v in rows)
     return """
